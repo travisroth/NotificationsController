@@ -91,6 +91,12 @@ class TestDeduper(unittest.TestCase):
 		self.assertTrue(dd.isDuplicate(rec("a", 100.3)))
 		self.assertFalse(dd.isDuplicate(rec("a", 101.0)))
 
+	def test_spacingDifferencesAreDuplicates(self):
+		dd = Deduper(0.5)
+		dd.isDuplicate(rec("Running", 100.0))
+		self.assertTrue(dd.isDuplicate(rec("Running ", 100.0)))
+		self.assertTrue(dd.isDuplicate(rec(" Running\n", 100.1)))
+
 	def test_differentTextOrApp(self):
 		dd = Deduper(0.5)
 		dd.isDuplicate(rec("a", 100.0))

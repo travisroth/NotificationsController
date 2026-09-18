@@ -171,6 +171,46 @@ class TestCapture(unittest.TestCase):
 		self.assertEqual(record.politeness, "assertive")
 
 
+class TestToast(unittest.TestCase):
+	"""A toast shaped like a real Windows 11 one, from a history entry."""
+
+	@staticmethod
+	def node(role, automationId, name, children=()):
+		return types.SimpleNamespace(
+			role=role,
+			UIAAutomationId=automationId,
+			name=name,
+			description="",
+			children=list(children),
+			appModule=None,
+		)
+
+	def test_fromToastUsesTitleMessageAndSender(self):
+		import controlTypes
+
+		text, button, window = (
+			controlTypes.Role.STATICTEXT,
+			controlTypes.Role.BUTTON,
+			controlTypes.Role.WINDOW,
+		)
+		toast = self.node(
+			window,
+			"NormalToastView",
+			"New notification from Windows PowerShell, Notification tester, Test notification 1.. 1 of 1",
+			[
+				self.node(text, "SenderName", "Windows PowerShell"),
+				self.node(button, "SettingsButton", "Settings for this notification"),
+				self.node(button, "DismissButton", "Move this notification to Notification Center"),
+				self.node(text, "Title", "Notification tester"),
+				self.node(text, "MessageText", "Test notification 1"),
+			],
+		)
+		record = capture.fromToast(toast)
+		self.assertEqual(record.text, "Notification tester, Test notification 1")
+		self.assertEqual(record.appDisplayName, "Windows PowerShell")
+		self.assertIn("Spoken as: New notification from Windows PowerShell", record.details)
+
+
 class TestLiveRegionHook(unittest.TestCase):
 	"""Drive the real nvdaHelperLocal export through the hook and back to NVDA's own handler."""
 

@@ -36,6 +36,7 @@ from .models import (
 	SOURCE_UIA,
 	NotificationRecord,
 	domainFromUrl,
+	toastText,
 )
 
 BROWSER_APPS = frozenset(
@@ -191,44 +192,54 @@ def fromUIANotification(
 
 
 _toastAppPattern = re.compile(r"^New notification from (.+?)(?:[.,:\n]|$)", re.IGNORECASE)
-_toastAppIds = ("appname", "attribution", "header")
+_toastSenderIds = ("sendername", "appname", "attribution")
+"""Automation IDs of the part of a toast that names the sending app, lower case."""
 
 
-def _describeTree(obj: NVDAObject, maxNodes: int = 40) -> tuple[list[str], str]:
-	"""Lines describing a toast's descendants, and the name of one that looks like the app name."""
+def _describeTree(obj: NVDAObject, maxNodes: int = 40) -> tuple[list[str], str, list[str]]:
+	"""Look through a toast's descendants.
+
+	:return: Lines describing each element for the history details, the name of the element that names
+		the sending app, and the text of the toast's other text elements (title, message) in order.
+	"""
 	lines: list[str] = []
-	appName = ""
+	sender = ""
+	parts: list[str] = []
 	stack: list[tuple[NVDAObject, int]] = [(obj, 0)]
 	while stack and len(lines) < maxNodes:
 		node, depth = stack.pop()
 		automationId = str(_safe(lambda node=node: getattr(node, "UIAAutomationId", "")))
-		name = str(_safe(lambda node=node: node.name))
+		name = str(_safe(lambda node=node: node.name)).strip()
 		role = _safe(lambda node=node: node.role, None)
 		roleName = role.displayString if isinstance(role, controlTypes.Role) else ""
 		lines.append(f"{'  ' * depth}{roleName} id={automationId!r} name={name!r}")
-		if not appName and name and any(key in automationId.casefold() for key in _toastAppIds):
-			appName = name
+		if depth > 0 and name:
+			if any(key in automationId.casefold() for key in _toastSenderIds):
+				if not sender:
+					sender = name
+			elif role == controlTypes.Role.STATICTEXT:
+				parts.append(name)
 		children = _safe(lambda node=node: node.children, [])
 		for child in reversed(list(children)):
 			stack.append((child, depth + 1))
-	return lines, appName
+	return lines, sender, parts
 
 
 def fromToast(obj: NVDAObject) -> NotificationRecord:
 	name = str(_safe(lambda: obj.name))
 	description = str(_safe(lambda: obj.description))
-	text = name
+	fullName = name
 	if description and description not in name:
-		text = f"{name} {description}".strip()
-	record = _newRecord(SOURCE_TOAST, text)
-	record.appName, _product = appInfo(obj)
-	lines, sender = _describeTree(obj)
+		fullName = f"{name} {description}".strip()
+	lines, sender, parts = _describeTree(obj)
 	if not sender:
 		match = _toastAppPattern.match(name)
 		if match:
 			sender = match.group(1).strip()
+	record = _newRecord(SOURCE_TOAST, toastText(fullName, parts))
+	record.appName, _product = appInfo(obj)
 	record.appDisplayName = sender
-	record.details = "\n".join(lines)
+	record.details = "\n".join([f"Spoken as: {fullName}", *lines])
 	record.windowTitle = foregroundTitle()
 	return record
 

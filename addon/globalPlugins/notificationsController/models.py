@@ -10,6 +10,7 @@ Nothing here imports NVDA, so the rule engine and history store can be tested wi
 from __future__ import annotations
 
 import dataclasses
+import re
 from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import urlsplit
@@ -80,6 +81,26 @@ def domainFromUrl(url: str) -> str:
 	except ValueError:
 		return ""
 	return host.lower().rstrip(".")
+
+
+_toastPrefix = re.compile(r"^New notification from [^,]*,\s*", re.IGNORECASE)
+_toastPosition = re.compile(r"[.\s]*\d+ of \d+\s*$")
+
+
+def toastText(spokenName: str, parts: list[str]) -> str:
+	"""The text of a toast without the sending app and position that Windows adds around it.
+
+	:param spokenName: The toast's whole name, such as
+		"New notification from Teams, Sam, Lunch?. 1 of 1".
+	:param parts: The toast's own text elements (title, message), when they could be read.
+		They are used when available, since they do not depend on the language Windows uses.
+	"""
+	text = ", ".join(p for p in parts if p.strip())
+	if text:
+		return text
+	text = _toastPrefix.sub("", spokenName, count=1)
+	text = _toastPosition.sub("", text).strip()
+	return text or spokenName
 
 
 def siteDomain(domain: str) -> str:

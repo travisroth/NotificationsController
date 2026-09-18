@@ -19,6 +19,7 @@ from .models import (
 	NotificationRecord,
 	Rule,
 )
+from .rules import normalizeText
 
 
 @dataclass
@@ -81,7 +82,8 @@ class Deduper:
 		self._lastTime = 0.0
 
 	def isDuplicate(self, record: NotificationRecord) -> bool:
-		key = (record.appName, record.text)
+		# Compare text as the rules do, so "Running" and "Running " count as the same.
+		key = (record.appName, normalizeText(record.text))
 		duplicate = (
 			self.windowSeconds > 0
 			and key == self._lastKey

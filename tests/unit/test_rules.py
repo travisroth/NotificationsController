@@ -24,6 +24,7 @@ from notificationsController.models import (
 	Rule,
 	domainFromUrl,
 	siteDomain,
+	toastText,
 )
 from notificationsController.rules import (
 	RuleSet,
@@ -165,6 +166,22 @@ class TestDomains(unittest.TestCase):
 	def test_siteDomain(self):
 		self.assertEqual(siteDomain("www.example.com"), "example.com")
 		self.assertEqual(siteDomain("app.example.com"), "app.example.com")
+
+
+class TestToastText(unittest.TestCase):
+	def test_usesParts(self):
+		self.assertEqual(
+			toastText("New notification from X, Title, Body.. 1 of 1", ["Title", "Body", " "]),
+			"Title, Body",
+		)
+
+	def test_cleansSpokenNameWithoutParts(self):
+		self.assertEqual(
+			toastText("New notification from Windows PowerShell, Notification tester, Test 1.. 1 of 1", []),
+			"Notification tester, Test 1",
+		)
+		self.assertEqual(toastText("Something else. 2 of 3", []), "Something else")
+		self.assertEqual(toastText("Plain", []), "Plain")
 
 
 class TestPersistence(unittest.TestCase):

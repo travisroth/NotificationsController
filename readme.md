@@ -18,7 +18,7 @@ Requires NVDA 2026.2 or later.
 The add-on handles three kinds:
 
 1. App notifications (UI Automation notifications). Many Windows apps send these: Microsoft Teams, Office, Settings, Calculator, File Explorer, and web browsers for some web page announcements.
-2. Windows toasts: the popups in the corner of the screen.
+2. Windows toasts: the popups in the corner of the screen. A toast's text is its title and message, such as "Lunch, Anyone free at noon?", without the "New notification from" and "1 of 1" that Windows adds, so rules can match the start of the message. The app that sent it is shown as its app, and the full text as spoken is in the details.
 3. Web page live regions: parts of a web page marked to announce changes, such as chat messages, status messages and alerts. Some sites use these well and some overuse them badly, so rules for live regions are usually limited to one website.
 
 You can turn handling of each kind on or off in the add-on's settings.
@@ -148,7 +148,7 @@ In your NVDA settings folder, in a folder named notificationsController:
 
 1. For toasts, the sending app is worked out from the toast's contents, which is not always possible. The history details show the toast's structure to help.
 2. For live regions in Chrome and Firefox, NVDA does not say which tab a report came from. The add-on uses the page with focus, or the browser's open page when all its pages are on one site. When it cannot tell, the website is left empty, and only rules without a website can match.
-3. Duplicate detection compares each notification only with the one just before it.
+3. Duplicate detection compares each notification only with the one just before it, ignoring differences in spaces and line breaks.
 
 ## Development
 
