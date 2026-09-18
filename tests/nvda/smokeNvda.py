@@ -278,6 +278,35 @@ class TestDialogs(unittest.TestCase):
 		finally:
 			dialog.Destroy()
 
+	def test_silenceSiteRuleSilences(self):
+		from notificationsController.ruleEditor import silenceSiteRule
+
+		controller = Controller()
+		controller.applySettings()
+		controller.rules.setRules([silenceSiteRule("www.example.com")])
+		live = rec("Ticker", source=SOURCE_LIVE_REGION, appName="chrome")
+		live.domain = "news.example.com"
+		passed = []
+		spoken.clear()
+		controller.process(live, lambda: passed.append(1))
+		self.assertEqual(passed, [])
+		self.assertEqual(spoken, [])
+		self.assertEqual(live.action, "none")
+
+	def test_emptyHistoryFiltersHaveAllItem(self):
+		from notificationsController.historyDialog import HistoryDialog
+
+		controller = Controller()
+		controller.applySettings()
+		controller.history.clear()
+		dialog = HistoryDialog(self.frame, controller, plugin=None)
+		try:
+			for choice in (dialog.appFilter, dialog.domainFilter, dialog.categoryFilter):
+				self.assertEqual(choice.GetCount(), 1)
+				self.assertEqual(choice.GetSelection(), 0)
+		finally:
+			dialog.Close()
+
 	def test_settingsPanel(self):
 		from notificationsController.settingsPanel import NotificationsControllerPanel
 

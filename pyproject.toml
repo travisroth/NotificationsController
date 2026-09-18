@@ -37,6 +37,8 @@ ignore = [
 	# Code on NVDA's event and RPC paths catches everything so a failure never breaks NVDA's own handling
 	"BLE001",
 	"S110",
+	# Damaged saved data is reported as ValueError, whatever the cause
+	"TRY004",
 ]
 
 [tool.ruff.lint.per-file-ignores]

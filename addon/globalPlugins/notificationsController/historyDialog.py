@@ -282,9 +282,9 @@ class HistoryDialog(wx.Dialog):
 	) -> list[str]:
 		"""Refill a filter choice, keeping the chosen value. Returns the values behind the items."""
 		current = ""
-		oldValues = getattr(choice, "_ncValues", [""])
+		oldValues = getattr(choice, "_ncValues", None)
 		selection = choice.GetSelection()
-		if 0 <= selection < len(oldValues):
+		if oldValues and 0 <= selection < len(oldValues):
 			current = oldValues[selection]
 		newValues = ["", *values]
 		if newValues == oldValues:

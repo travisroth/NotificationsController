@@ -199,6 +199,24 @@ class TestPersistence(unittest.TestCase):
 		self.assertTrue(rules[0].id)
 		self.assertEqual(rules[0].action.output, OUTPUT_NONE)
 
+	def test_wrongTypesKeepDefaults(self):
+		rules = RuleSet.rulesFromJson(
+			[
+				{
+					"id": "x",
+					"app": None,
+					"pattern": 5,
+					"enabled": "yes",
+					"action": {"output": None, "sound": 3},
+				}
+			],
+		)
+		rule = rules[0]
+		self.assertEqual((rule.app, rule.pattern, rule.enabled), ("", "", True))
+		self.assertEqual((rule.action.output, rule.action.sound), ("default", ""))
+		# The rule set compiles and matches without errors.
+		self.assertIs(RuleSet(rules).match(record("x")), rule)
+
 	def test_importRejectsNonList(self):
 		with self.assertRaises(ValueError):
 			RuleSet.rulesFromJson({"rules": "nope"})

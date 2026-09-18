@@ -168,7 +168,7 @@ class RuleSet:
 		"""Read rules from parsed JSON: either the saved file format or a bare list of rules."""
 		items = data.get("rules", []) if isinstance(data, dict) else data
 		if not isinstance(items, list):
-			raise ValueError("No list of rules found")  # noqa: TRY004 - callers handle bad files as ValueError
+			raise ValueError("No list of rules found")
 		rules: list[Rule] = []
 		for item in items:
 			if not isinstance(item, dict):

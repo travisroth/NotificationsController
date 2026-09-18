@@ -176,13 +176,23 @@ class TestPersistence(unittest.TestCase):
 		h.add(rec("good"))
 		h.flush()
 		with open(self.path, "a", encoding="utf-8") as f:
-			f.write("{not json\n\n[1,2]\n")
+			f.write("{not json\n\n[1,2]\nnull\n")
+			f.write('{"timestamp": "yesterday", "source": "uia", "text": "bad time"}\n')
+			f.write('{"timestamp": 1000000.0, "source": "uia", "text": null}\n')
+			f.write('{"timestamp": 1000001, "source": "uia", "text": "odd", "id": "7", "pinned": "no"}\n')
+			f.write('{"timestamp": 1000002, "source": "uia", "text": "same id", "id": 1}\n')
 		loaded = self.make()
 		loaded.load()
-		self.assertEqual([r.text for r in loaded.records], ["good"])
-		self.assertEqual(loaded.loadErrors, 2)
+		self.assertEqual([r.text for r in loaded.records], ["good", "odd", "same id"])
+		self.assertEqual(loaded.loadErrors, 5)
+		odd = loaded.records[1]
+		self.assertFalse(odd.pinned)
+		self.assertIsInstance(odd.timestamp, float)
+		ids = {r.id for r in loaded.records}
+		self.assertEqual(len(ids), 3)
+		self.assertNotIn(0, ids)
 		loaded.flush()
-		self.assertEqual(len(self.lines()), 1)
+		self.assertEqual(len(self.lines()), 3)
 
 	def test_loadPrunesOld(self):
 		h = self.make()

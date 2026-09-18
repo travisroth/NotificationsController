@@ -31,6 +31,7 @@ from .models import (
 	SOURCE_ANY,
 	SOURCE_LIVE_REGION,
 	SOURCE_TOAST,
+	Action,
 	NotificationRecord,
 	Rule,
 	siteDomain,
@@ -71,6 +72,7 @@ def silenceSiteRule(domain: str) -> Rule:
 		source=SOURCE_LIVE_REGION,
 		domain=domain,
 		matchType=MATCH_ANY,
+		action=Action(output=OUTPUT_NONE),
 		category=CATEGORY_SPAM,
 	)
 

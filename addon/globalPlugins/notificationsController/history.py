@@ -231,10 +231,18 @@ class History:
 					try:
 						data = json.loads(line)
 						self._records.append(NotificationRecord.fromDict(data))
-					except (ValueError, TypeError, AttributeError):
+					except ValueError:
 						self.loadErrors += 1
 		self._records.sort(key=lambda r: (r.timestamp, r.id))
 		self._nextId = max((r.id for r in self._records), default=0) + 1
+		seen: set[int] = set()
+		for record in self._records:
+			if record.id <= 0 or record.id in seen:
+				# A missing or repeated id, from a damaged or hand edited file.
+				record.id = self._nextId
+				self._nextId += 1
+				self._dirty = True
+			seen.add(record.id)
 		if self.loadErrors:
 			# Rewrite the file without the damaged lines.
 			self._dirty = True

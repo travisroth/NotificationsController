@@ -87,6 +87,31 @@ def siteDomain(domain: str) -> str:
 	return domain.lower().removeprefix("www.")
 
 
+def _typedValues(cls: type, data: dict[str, Any]) -> dict[str, Any]:
+	"""The entries of data that are fields of the dataclass and have the type of the field's default.
+
+	Anything else, such as a null where text belongs, is dropped so the field keeps its default. This keeps
+	a hand edited or foreign file from putting values of the wrong type into rules or history.
+	"""
+	values: dict[str, Any] = {}
+	for f in dataclasses.fields(cls):
+		if f.name not in data:
+			continue
+		value = data[f.name]
+		if f.default is not dataclasses.MISSING and f.default is not None:
+			expected = type(f.default)
+			if expected is float:
+				ok = isinstance(value, (int, float)) and not isinstance(value, bool)
+			elif expected is int:
+				ok = isinstance(value, int) and not isinstance(value, bool)
+			else:
+				ok = isinstance(value, expected)
+			if not ok:
+				continue
+		values[f.name] = value
+	return values
+
+
 @dataclass
 class NotificationRecord:
 	"""One notification received by NVDA."""
@@ -123,8 +148,22 @@ class NotificationRecord:
 
 	@classmethod
 	def fromDict(cls, data: dict[str, Any]) -> NotificationRecord:
-		names = {f.name for f in dataclasses.fields(cls)}
-		return cls(**{k: v for k, v in data.items() if k in names})
+		"""Build a record from saved data. Raises ValueError when data is not a usable record."""
+		if not isinstance(data, dict):
+			raise ValueError("Not a notification record")
+		values = _typedValues(cls, data)
+		timestamp = data.get("timestamp")
+		if isinstance(timestamp, bool) or not isinstance(timestamp, (int, float)):
+			raise ValueError("Notification record without a valid timestamp")
+		values["timestamp"] = float(timestamp)
+		for name in ("source", "text"):
+			if not isinstance(data.get(name), str):
+				raise ValueError(f"Notification record without a valid {name}")
+			values[name] = data[name]
+		for name in ("notificationKind", "notificationProcessing"):
+			value = data.get(name)
+			values[name] = value if isinstance(value, int) and not isinstance(value, bool) else None
+		return cls(**values)
 
 	@property
 	def appLabel(self) -> str:
@@ -180,14 +219,10 @@ class Rule:
 
 	@classmethod
 	def fromDict(cls, data: dict[str, Any]) -> Rule:
-		names = {f.name for f in dataclasses.fields(cls)}
-		values = {k: v for k, v in data.items() if k in names}
-		action = values.get("action")
-		if isinstance(action, dict):
-			actionNames = {f.name for f in dataclasses.fields(Action)}
-			values["action"] = Action(**{k: v for k, v in action.items() if k in actionNames})
-		elif not isinstance(action, Action):
-			values["action"] = Action()
+		"""Build a rule from saved data. Fields of the wrong type keep their defaults."""
+		values = _typedValues(cls, data)
+		action = data.get("action")
+		values["action"] = Action(**_typedValues(Action, action)) if isinstance(action, dict) else Action()
 		return cls(**values)
 
 	@property
