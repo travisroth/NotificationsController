@@ -31,6 +31,7 @@ from logHandler import log
 from NVDAObjects import NVDAObject
 
 from .models import (
+	SOURCE_ALERT,
 	SOURCE_LIVE_REGION,
 	SOURCE_TOAST,
 	SOURCE_UIA,
@@ -248,6 +249,60 @@ def livePoliteness(obj: NVDAObject) -> str:
 	politeness = _safe(lambda: obj.liveRegionPoliteness, None)
 	value = getattr(politeness, "value", politeness)
 	return value if value in ("polite", "assertive") else ""
+
+
+_MAX_ALERT_NODES = 60
+
+
+def isReportableAlert(obj: NVDAObject) -> bool:
+	"""Whether NVDA would report an alert event on this object, as NVDA's IAccessible alert handler does:
+	the object has the alert role and the focus is not inside it.
+	"""
+	if _safe(lambda: obj.role, None) != controlTypes.Role.ALERT:
+		return False
+	try:
+		return obj not in api.getFocusAncestors() and obj != api.getFocusObject()
+	except Exception:
+		return True
+
+
+def alertText(obj: NVDAObject) -> str:
+	"""The text of an alert: its name and description, or the text inside it when it has no name.
+
+	Pop-ups built from web content, such as Teams' own notifications, often have no name of their own,
+	so the text of their descendants is gathered in order, skipping repeats and buttons.
+	"""
+	name = str(_safe(lambda: obj.name)).strip()
+	description = str(_safe(lambda: obj.description)).strip()
+	parts = [p for p in (name, description) if p]
+	if parts and not (len(parts) == 1 and description and not name):
+		return ", ".join(dict.fromkeys(parts))
+	gathered: list[str] = []
+	stack: list[NVDAObject] = list(reversed(list(_safe(lambda: obj.children, []))))
+	visited = 0
+	while stack and visited < _MAX_ALERT_NODES:
+		node = stack.pop()
+		visited += 1
+		role = _safe(lambda node=node: node.role, None)
+		if role in (controlTypes.Role.BUTTON, controlTypes.Role.MENUBUTTON, controlTypes.Role.LINK):
+			continue
+		children = list(_safe(lambda node=node: node.children, []))
+		if children:
+			stack.extend(reversed(children))
+			continue
+		text = str(_safe(lambda node=node: node.name)).strip()
+		if text and (not gathered or gathered[-1] != text):
+			gathered.append(text)
+	return ", ".join([*parts, *gathered]) if gathered else ", ".join(parts)
+
+
+def fromAlert(obj: NVDAObject) -> NotificationRecord:
+	record = _newRecord(SOURCE_ALERT, alertText(obj))
+	record.appName, record.appDisplayName = appInfo(obj)
+	record.background = isBackground(obj)
+	record.windowTitle = foregroundTitle()
+	_setUrl(record, urlForObject(obj, walkParents=True))
+	return record
 
 
 def fromLiveRegionEvent(obj: NVDAObject) -> NotificationRecord:

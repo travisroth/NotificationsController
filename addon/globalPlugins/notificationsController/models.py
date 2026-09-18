@@ -19,7 +19,8 @@ from urllib.parse import urlsplit
 SOURCE_UIA = "uia"
 SOURCE_TOAST = "toast"
 SOURCE_LIVE_REGION = "liveRegion"
-SOURCES = (SOURCE_UIA, SOURCE_TOAST, SOURCE_LIVE_REGION)
+SOURCE_ALERT = "alert"
+SOURCES = (SOURCE_UIA, SOURCE_TOAST, SOURCE_LIVE_REGION, SOURCE_ALERT)
 SOURCE_ANY = "any"
 
 # Categories. Rules may also use any other text as a custom category.

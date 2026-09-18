@@ -211,6 +211,42 @@ class TestToast(unittest.TestCase):
 		self.assertIn("Spoken as: New notification from Windows PowerShell", record.details)
 
 
+class TestAlert(unittest.TestCase):
+	"""An app's own notification pop-up: an alert with no name, its text in descendants."""
+
+	def test_alertTextFromDescendants(self):
+		import controlTypes
+
+		node = TestToast.node
+		role = controlTypes.Role
+		alert = node(
+			role.ALERT,
+			"",
+			"",
+			[
+				node(role.SECTION, "", "", [node(role.STATICTEXT, "", "Sam Smith")]),
+				node(role.STATICTEXT, "", "Are you joining the call?"),
+				node(role.BUTTON, "", "Reply"),
+				node(role.STATICTEXT, "", "Are you joining the call?"),
+			],
+		)
+		self.assertTrue(capture.isReportableAlert(alert))
+		record = capture.fromAlert(alert)
+		self.assertEqual(record.source, "alert")
+		self.assertEqual(record.text, "Sam Smith, Are you joining the call?")
+
+	def test_namedAlertUsesName(self):
+		import controlTypes
+
+		alert = TestToast.node(controlTypes.Role.ALERT, "", "Saved", [])
+		self.assertEqual(capture.alertText(alert), "Saved")
+
+	def test_notAlertRoleIsNotReportable(self):
+		import controlTypes
+
+		self.assertFalse(capture.isReportableAlert(TestToast.node(controlTypes.Role.DIALOG, "", "x", [])))
+
+
 class TestLiveRegionHook(unittest.TestCase):
 	"""Drive the real nvdaHelperLocal export through the hook and back to NVDA's own handler."""
 

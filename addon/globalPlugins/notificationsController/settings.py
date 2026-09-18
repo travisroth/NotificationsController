@@ -35,6 +35,7 @@ from .models import (
 	POLITENESS_ASSERTIVE,
 	POLITENESS_POLITE,
 	SOUND_BUILTIN_PREFIX,
+	SOURCE_ALERT,
 	SOURCE_ANY,
 	SOURCE_LIVE_REGION,
 	SOURCE_TOAST,
@@ -57,6 +58,7 @@ confspec = {
 	"captureUIA": "boolean(default=True)",
 	"captureToasts": "boolean(default=True)",
 	"captureLiveRegions": "boolean(default=True)",
+	"captureAlerts": "boolean(default=True)",
 }
 
 RETENTION_CHOICES = (1, 12, 24, 72, 168, 720, 0)
@@ -122,6 +124,9 @@ def sourceLabels() -> dict[str, str]:
 		SOURCE_TOAST: _("Windows toast"),
 		# Translators: Where a notification came from: an ARIA live region on a web page.
 		SOURCE_LIVE_REGION: _("Web live region"),
+		# Translators: Where a notification came from: an object with the alert role, such as an app's own
+		# pop-up or a web page alert.
+		SOURCE_ALERT: _("Pop-up alert"),
 	}
 
 

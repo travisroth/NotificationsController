@@ -2,7 +2,7 @@
 
 ## 0.1.0 (in development)
 
-1. Logs UI Automation notifications, Windows toasts and web page live regions (including Chrome and Firefox) to a history, without changing what NVDA reports.
+1. Logs UI Automation notifications, Windows toasts, web page live regions (including Chrome and Firefox) and pop-up alerts, such as apps' own notification pop-ups, to a history, without changing what NVDA reports.
 2. Rules by app, kind, website (domain, subdomains, URL prefix), text (starts with, contains, is exactly, regular expression), activity ID and live region politeness.
 3. Rule actions: NVDA default, speech and braille, speech only, braille only, or silent, with an optional built-in or custom sound, a category, and whether to log.
 4. Notification history window with filters, details, pinning, reviewed state, and creating rules from a notification.

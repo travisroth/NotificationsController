@@ -114,6 +114,11 @@ class NotificationsControllerPanel(SettingsPanel):
 			wx.CheckBox(sourcesBox, label=_("Web page li&ve regions")),
 		)
 		self.liveRegionCheck.SetValue(conf["captureLiveRegions"])
+		self.alertCheck = sourcesGroup.addItem(
+			# Translators: A checkbox in the add-on's settings. Alerts include apps' own notification pop-ups.
+			wx.CheckBox(sourcesBox, label=_("&Pop-up alerts")),
+		)
+		self.alertCheck.SetValue(conf["captureAlerts"])
 
 	def onClearHistory(self, evt):
 		result = MessageDialog.confirm(
@@ -140,5 +145,6 @@ class NotificationsControllerPanel(SettingsPanel):
 		conf["captureUIA"] = self.uiaCheck.GetValue()
 		conf["captureToasts"] = self.toastCheck.GetValue()
 		conf["captureLiveRegions"] = self.liveRegionCheck.GetValue()
+		conf["captureAlerts"] = self.alertCheck.GetValue()
 		if self.controller:
 			self.controller.applySettings()

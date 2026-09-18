@@ -15,11 +15,12 @@ Requires NVDA 2026.2 or later.
 
 ## What counts as a notification
 
-The add-on handles three kinds:
+The add-on handles four kinds:
 
 1. App notifications (UI Automation notifications). Many Windows apps send these: Microsoft Teams, Office, Settings, Calculator, File Explorer, and web browsers for some web page announcements.
 2. Windows toasts: the popups in the corner of the screen. A toast's text is its title and message, such as "Lunch, Anyone free at noon?", without the "New notification from" and "1 of 1" that Windows adds, so rules can match the start of the message. The app that sent it is shown as its app, and the full text as spoken is in the details.
 3. Web page live regions: parts of a web page marked to announce changes, such as chat messages, status messages and alerts. Some sites use these well and some overuse them badly, so rules for live regions are usually limited to one website.
+4. Pop-up alerts: objects marked as alerts, such as an app's own notification pop-up, a web page alert, or a UI Automation system alert. NVDA reports these even from apps in the background when the pop-up is a topmost window. Apps such as Microsoft Teams can show their own pop-ups instead of Windows toasts. When an alert has no name of its own, its text is gathered from the text inside it.
 
 You can turn handling of each kind on or off in the add-on's settings.
 
@@ -67,7 +68,7 @@ Open the rules window from the NVDA menu, Tools, Notifications Controller, Rules
 Every field you fill in must match. Empty fields match anything.
 
 1. App: the app that sent the notification. You can use NVDA's name for the app, such as ms-teams, chrome or msedge, or the product name, such as Microsoft Teams. The list offers names seen in the history. For toasts, use the name of the app that sent the toast.
-2. Kind of notification: app notification, Windows toast, web live region, or any.
+2. Kind of notification: app notification, Windows toast, web live region, pop-up alert, or any.
 3. Website: for web content, the site's domain, such as example.com. With Include subdomains checked, it also matches www.example.com, app.example.com and so on. You can type a full address and the domain is taken from it.
 4. URL starts with: for sites where only one part misbehaves, the start of the page address, such as https://example.com/app/.
 5. Text: how the notification's text is matched, and the Pattern to match.
@@ -135,7 +136,7 @@ Open the NVDA menu, Preferences, Settings, Notifications Controller, or use Tool
 7. Never automatically delete important notifications.
 8. Log a repeated notification only once within a number of milliseconds. Some apps and browsers send the same notification twice in a row. The default is 500.
 9. Clear history.
-10. Handle app notifications, Windows toasts, and web page live regions.
+10. Handle app notifications, Windows toasts, web page live regions, and pop-up alerts.
 
 ## Where files are kept
 

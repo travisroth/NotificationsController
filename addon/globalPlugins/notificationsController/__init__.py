@@ -195,8 +195,30 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def event_alert(self, obj: NVDAObject, nextHandler: Callable[[], None]):
 		if isinstance(obj, Notification):
 			self._handleToast(obj, nextHandler)
+		elif capture.isReportableAlert(obj):
+			self._handleAlert(obj, nextHandler)
 		else:
 			nextHandler()
+
+	def event_UIA_systemAlert(self, obj: NVDAObject, nextHandler: Callable[[], None]):
+		self._handleAlert(obj, nextHandler)
+
+	def _handleAlert(self, obj: NVDAObject, nextHandler: Callable[[], None]) -> None:
+		"""An object with the alert role, such as an app's own notification pop-up or a web page alert.
+
+		NVDA accepts events from topmost windows even when their app is in the background, so an app's own
+		notification pop-up can be reported this way while another app has focus.
+		"""
+		if not settings.conf()["captureAlerts"]:
+			nextHandler()
+			return
+		try:
+			record = capture.fromAlert(obj)
+		except Exception:
+			log.error("NotificationsController: could not read an alert", exc_info=True)
+			nextHandler()
+			return
+		self.controller.process(record, nextHandler)
 
 	def event_liveRegionChange(self, obj: NVDAObject, nextHandler: Callable[[], None]):
 		if not settings.conf()["captureLiveRegions"]:
