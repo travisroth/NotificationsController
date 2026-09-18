@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>NotificationsController live region test page</title>
+<style>
+	body { font-family: sans-serif; max-width: 50em; margin: 1em auto; padding: 0 1em; }
+	button { margin: 0.2em; }
+	fieldset { margin-bottom: 1em; }
+	.region { border: 1px dashed #888; padding: 0.3em; min-height: 1.5em; }
+</style>
+</head>
+<body>
+<h1>Live region test page</h1>
+<p>
+	Each button updates a live region, so NVDA reports it and NotificationsController logs it.
+	Serve this page from two host names to test site scoping, for example run
+	<code>python -m http.server 8000</code> in this folder and open both
+	<code>http://localhost:8000/liveRegions.html</code> and <code>http://127.0.0.1:8000/liveRegions.html</code>.
+</p>
+
+<fieldset>
+	<legend>Regions</legend>
+	<button id="polite">Polite update</button>
+	<button id="assertive">Assertive update</button>
+	<button id="status">Role status update</button>
+	<button id="alert">Role alert</button>
+	<button id="sameText">Same text twice</button>
+	<button id="ariaNotify">ariaNotify</button>
+	<button id="delayed">Polite update in 5 seconds (switch away to test background)</button>
+</fieldset>
+
+<fieldset>
+	<legend>Noisy region</legend>
+	<p>Updates a polite region several times a second, like a site that abuses live regions.</p>
+	<button id="noisy" aria-pressed="false">Start noisy updates</button>
+</fieldset>
+
+<div class="region" id="politeRegion" aria-live="polite"></div>
+<div class="region" id="assertiveRegion" aria-live="assertive"></div>
+<div class="region" id="statusRegion" role="status"></div>
+<div class="region" id="alertContainer"></div>
+<div class="region" id="noisyRegion" aria-live="polite"></div>
+
+<h2>Region inside a frame</h2>
+<p>The frame has its own live region. Rules should match it by this page's site.</p>
+<iframe title="Framed live region" style="width: 100%; height: 6em" srcdoc="
+	<button onclick=&quot;document.getElementById('r').textContent = 'Frame update ' + new Date().toLocaleTimeString()&quot;>Frame update</button>
+	<div id='r' aria-live='polite'></div>
+"></iframe>
+
+<script>
+	let counter = 0;
+	const stamp = () => `${++counter} at ${new Date().toLocaleTimeString()}`;
+	const set = (id, text) => { document.getElementById(id).textContent = text; };
+
+	document.getElementById("polite").onclick = () => set("politeRegion", `Polite update ${stamp()}`);
+	document.getElementById("assertive").onclick = () => set("assertiveRegion", `Assertive update ${stamp()}`);
+	document.getElementById("status").onclick = () => set("statusRegion", `Status update ${stamp()}`);
+	document.getElementById("alert").onclick = () => {
+		const container = document.getElementById("alertContainer");
+		container.textContent = "";
+		const alert = document.createElement("div");
+		alert.setAttribute("role", "alert");
+		alert.textContent = `Alert ${stamp()}`;
+		container.appendChild(alert);
+	};
+	document.getElementById("sameText").onclick = () => {
+		set("politeRegion", "");
+		setTimeout(() => set("politeRegion", "Repeated text"), 50);
+		setTimeout(() => set("politeRegion", ""), 150);
+		setTimeout(() => set("politeRegion", "Repeated text"), 200);
+	};
+	document.getElementById("ariaNotify").onclick = () => {
+		const text = `ariaNotify message ${stamp()}`;
+		if (typeof document.ariaNotify === "function") {
+			document.ariaNotify(text);
+		} else {
+			set("politeRegion", "This browser does not support ariaNotify");
+		}
+	};
+	document.getElementById("delayed").onclick = () => {
+		setTimeout(() => set("politeRegion", `Delayed update ${stamp()}`), 5000);
+	};
+
+	let noisyTimer = null;
+	const noisy = document.getElementById("noisy");
+	noisy.onclick = () => {
+		if (noisyTimer) {
+			clearInterval(noisyTimer);
+			noisyTimer = null;
+			noisy.textContent = "Start noisy updates";
+			noisy.setAttribute("aria-pressed", "false");
+		} else {
+			noisyTimer = setInterval(() => set("noisyRegion", `Ticker ${stamp()}`), 250);
+			noisy.textContent = "Stop noisy updates";
+			noisy.setAttribute("aria-pressed", "true");
+		}
+	};
+</script>
+</body>
+</html>

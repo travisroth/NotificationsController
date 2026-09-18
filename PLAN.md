@@ -41,6 +41,14 @@ Research items to confirm early (spike in Phase 1):
 5. Live region reliability: confirm that the URL can be obtained for live region events in Chrome, Edge, and Firefox, including inside iframes (where the frame's URL may differ from the top-level page; the rule should match on the top-level site). Confirm how NVDA coalesces partial text updates so the logged text matches what NVDA would have spoken.
 6. Live region volume: abusive sites can fire many updates per second. Measure the cost of building a record per event and make sure the fast path (no matching rule, logging on) stays cheap.
 
+Findings from reading NVDA's source (2026.2 and 2026.3):
+
+1. Background UIA notifications: NVDA drops them in the object's own handler (NVDAObjects.UIA.UIA.event_UIA_notification checks the focus app module). Global plugins run earlier in the event chain, so the add-on sees them, and a rule with its own output can report them. The add-on records a background flag.
+2. Chrome and Firefox live regions (IAccessible2) are not NVDA events at all. NVDA's in-process helper watches them inside the browser and calls nvdaControllerInternal_reportLiveRegion(text, politeness) over RPC, which speaks and brailles directly. The add-on repoints that callback's function pointer in nvdaHelperLocal (keeping the previous pointer, and restoring it on exit), gets the calling process from the RPC binding, and queues the report to the main thread. There is no object, so the page address comes from the focused document in that process, or from the process's open documents when they are all on one site.
+3. UIA, MSHTML and Win32 live regions do arrive as event_liveRegionChange, with an object, so the page address comes from the object's browse mode document or its ancestors.
+4. Toasts: NVDA's Toast_win10 ignores the same toast (same runtime ID) within 1 second; the add-on does the same so it does not log repeats NVDA would not report.
+5. Sleep mode: NVDA does not run events for objects in sleep mode, and the helper callback is checked against sleep mode by the add-on.
+
 ## 3. Data model
 
 NotificationRecord (one per received notification):
