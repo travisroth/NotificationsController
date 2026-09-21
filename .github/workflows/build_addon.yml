@@ -22,7 +22,7 @@ jobs:
     - run: echo -e "pre-commit\nscons\nmarkdown\nruff==0.16.8\nregex">requirements.txt
 
     - name: Set up Python
-      uses: actions/setup-python@v6
+      uses: actions/setup-python@v7
       with:
         # The Python that NVDA 2026 runs on.
         python-version: 3.13
