@@ -252,11 +252,15 @@ class Controller:
 		try:
 			duplicate = self.deduper.isDuplicate(record)
 			rule = self.rules.match(record)
+			remainder = None
+			if rule and rule.action.removeMatch:
+				remainder = self.rules.removeMatched(rule, record.text)
 			decision = decide(
 				record,
 				rule,
 				doNotDisturb=conf["doNotDisturb"],
 				liveRegionsOn=config.conf["presentation"]["reportDynamicContentChanges"],
+				remainder=remainder,
 			)
 			record.action = decision.actionKey
 			output.playSound(decision.sound)
@@ -265,7 +269,7 @@ class Controller:
 				passthrough()
 			elif decision.present:
 				output.present(
-					record.text,
+					decision.text or record.text,
 					decision.present,
 					record.politeness,
 					record.notificationProcessing,

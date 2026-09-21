@@ -90,6 +90,29 @@ def regexSearch(compiled, text: str, timeout: float = REGEX_TIMEOUT) -> bool:
 	return bool(compiled.search(text))
 
 
+def regexRemove(compiled, text: str, timeout: float = REGEX_TIMEOUT) -> str:
+	"""Remove every match, with a time limit. Raises TimeoutError when it takes too long."""
+	if HAS_TIMEOUT:
+		return compiled.sub("", text, timeout=timeout)
+	return compiled.sub("", text)
+
+
+_edgeSeparators = " ,;:-–—"
+_spaceBeforePunctuation = re.compile(r"\s+([,.;:!?])")
+
+
+def tidyRemainder(text: str) -> str:
+	"""Clean up what is left after removing matched text.
+
+	Collapses the spaces left behind and trims separators that now start or end the text, such as the
+	comma before a removed sentence. Text with no letters or digits left counts as nothing, so a lone
+	full stop is not reported.
+	"""
+	text = normalizeText(text).strip(_edgeSeparators)
+	text = _spaceBeforePunctuation.sub(r"\1", text)
+	return text if any(c.isalnum() for c in text) else ""
+
+
 def validateRegex(pattern: str, caseSensitive: bool = False) -> str | None:
 	"""Return an error message if the pattern does not compile, otherwise None.
 
@@ -130,6 +153,13 @@ class CompiledRule:
 				self.error = str(e)
 		self.app = rule.app.strip().casefold()
 		self.urlPrefix = rule.urlPrefix.strip().casefold()
+		self._literal: re.Pattern[str] | None = None
+		if rule.matchType in (MATCH_STARTS_WITH, MATCH_CONTAINS) and normalizeText(rule.pattern):
+			# The pattern as a literal, for removing it. Escaped literals cannot backtrack.
+			literal = re.escape(normalizeText(rule.pattern))
+			if rule.matchType == MATCH_STARTS_WITH:
+				literal = "^" + literal
+			self._literal = re.compile(literal, 0 if rule.caseSensitive else re.IGNORECASE)
 
 	def matches(self, record: NotificationRecord, timeout: float = REGEX_TIMEOUT) -> bool:
 		"""Whether the rule matches.
@@ -171,6 +201,25 @@ class CompiledRule:
 		if matchType == MATCH_CONTAINS:
 			return self.pattern in text
 		return False
+
+	def removeMatched(self, text: str, timeout: float = REGEX_TIMEOUT) -> str:
+		"""The text with what this rule matched removed, tidied.
+
+		Starts with removes the start; contains and regular expressions remove every occurrence; is
+		exactly leaves nothing. Any text removes nothing.
+		:raises TimeoutError: When the regular expression takes too long.
+		"""
+		matchType = self.rule.matchType
+		text = normalizeText(text)
+		if matchType == MATCH_REGEX:
+			if self.regex is None:
+				return text
+			return tidyRemainder(regexRemove(self.regex, text, timeout))
+		if matchType == MATCH_EQUALS:
+			return "" if self.matchesText(text) else text
+		if self._literal is not None:
+			return tidyRemainder(self._literal.sub("", text))
+		return text
 
 
 class RuleSet:
@@ -219,6 +268,23 @@ class RuleSet:
 					compiled.error = REGEX_TIMEOUT_ERROR
 					if self.onRuleError:
 						self.onRuleError(compiled.rule, REGEX_TIMEOUT_ERROR)
+				return None
+		return None
+
+	def removeMatched(self, rule: Rule, text: str) -> str | None:
+		"""What is left of the text once the rule's match is removed, or None if that failed.
+
+		A regular expression that takes too long here turns the rule off, as it does while matching.
+		"""
+		for compiled in self._compiled:
+			if compiled.rule is not rule:
+				continue
+			try:
+				return compiled.removeMatched(text)
+			except TimeoutError:
+				compiled.error = REGEX_TIMEOUT_ERROR
+				if self.onRuleError:
+					self.onRuleError(rule, REGEX_TIMEOUT_ERROR)
 				return None
 		return None
 

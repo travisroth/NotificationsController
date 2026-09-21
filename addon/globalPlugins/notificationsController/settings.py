@@ -15,6 +15,8 @@ import globalVars
 from .models import (
 	ACTION_DISABLED_BY_NVDA,
 	ACTION_DO_NOT_DISTURB,
+	ACTION_PART_SOUND,
+	ACTION_PART_TRIM,
 	ACTION_PASSTHROUGH,
 	BUILTIN_SOUNDS,
 	CATEGORY_IMPORTANT,
@@ -234,9 +236,13 @@ def actionLabel(action: str) -> str:
 	}
 	if action in special:
 		return special[action]
-	output, _sep, sound = action.partition("+")
+	output, *parts = action.split("+")
 	label = outputLabels().get(output, output)
-	if sound:
+	if ACTION_PART_TRIM in parts:
+		# Translators: What was done with a notification: an output such as speech only, after removing
+		# the text a rule matched.
+		label = _("{output}, matched text removed").format(output=label)
+	if ACTION_PART_SOUND in parts:
 		# Translators: What was done with a notification: an output such as speech only, plus a sound.
 		label = _("{output}, with sound").format(output=label)
 	return label

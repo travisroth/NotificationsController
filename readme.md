@@ -90,9 +90,10 @@ Every field you fill in must match. Empty fields match anything.
 	3. Speech only.
 	4. Braille only.
 	5. No speech or braille.
-2. Sound: no sound, one of the built-in sounds (chime, blip, alert), or your own wave file. The sound plays before any speech. With "No speech or braille", the sound plays instead of the notification.
-3. Category: important, informational, spam, or type your own.
-4. Log to history: uncheck it for notifications you never want to see, such as a very noisy site.
+2. Remove the matched text and report the rest: instead of the whole notification, report what is left once the text the rule matched is removed. Use it for notifications that carry useful text plus something you do not want to hear, such as instructions a chat app adds to every message. Starts with removes the start of the text; contains and regular expressions remove every match; is exactly leaves nothing. Leftover commas and spaces are tidied, and if nothing meaningful is left, nothing is reported (a sound still plays, if the rule has one). The rest is reported with the speech and braille choice above; with NVDA default it is spoken and brailled, since NVDA cannot report changed text itself. The history keeps the original text and shows what was reported, and the Test against history button shows what each matching notification would become.
+3. Sound: no sound, one of the built-in sounds (chime, blip, alert), or your own wave file. The sound plays before any speech. With "No speech or braille", the sound plays instead of the notification.
+4. Category: important, informational, spam, or type your own.
+5. Log to history: uncheck it for notifications you never want to see, such as a very noisy site.
 
 The Test against history button shows which notifications in the history the rule would match, and says how many.
 

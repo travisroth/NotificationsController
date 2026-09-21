@@ -23,7 +23,7 @@ from gui.message import MessageDialog, ReturnCode
 
 from . import settings
 from .controller import Controller
-from .models import SOURCE_LIVE_REGION, SOURCES, NotificationRecord
+from .models import ACTION_PART_TRIM, SOURCE_LIVE_REGION, SOURCES, NotificationRecord
 from .ruleEditor import addRule, editRule, silenceSiteRule
 
 if TYPE_CHECKING:
@@ -34,11 +34,21 @@ addonHandler.initTranslation()
 REFRESH_DELAY_MS = 400
 
 
+def reportedText(record: NotificationRecord) -> str:
+	"""What was reported, when a rule removed part of the text; empty otherwise."""
+	if ACTION_PART_TRIM not in record.action.split("+"):
+		return ""
+	# Translators: In notification details, when removing the matched text left nothing to report.
+	return record.presentedText or _("(nothing)")
+
+
 def recordDetails(record: NotificationRecord) -> str:
 	"""Every field of a notification, one per line, for the details box and for copying."""
 	lines: list[tuple[str, str]] = [
 		# Translators: A label in notification details.
 		(_("Text"), record.text),
+		# Translators: A label in notification details: the text reported after a rule removed part of it.
+		(_("Reported as"), reportedText(record)),
 		# Translators: A label in notification details.
 		(_("Time"), time.strftime("%c", time.localtime(record.timestamp))),
 		# Translators: A label in notification details.

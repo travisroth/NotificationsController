@@ -182,6 +182,14 @@ class RuleEditorDialog(wx.Dialog):
 			wx.Choice,
 			choices=list(settings.outputLabels().values()),
 		)
+		self.removeMatchCheck = actionGroup.addItem(
+			wx.CheckBox(
+				actionBox,
+				# Translators: A checkbox in the rule editor. The rule removes the text it matched, such as a
+				# sentence of instructions, and reports the rest of the notification.
+				label=_("Remo&ve the matched text and report the rest"),
+			),
+		)
 		# Translators: A field in the rule editor.
 		self.soundChoice = actionGroup.addLabeledControl(_("S&ound:"), wx.Choice, choices=soundChoices)
 		soundFileSizer = guiHelper.BoxSizerHelper(actionBox, orientation=wx.HORIZONTAL)
@@ -263,6 +271,7 @@ class RuleEditorDialog(wx.Dialog):
 			self.soundChoice.SetSelection(self._index(self._soundKeys, sound))
 		self.categoryCombo.SetValue(settings.categoryLabel(r.category))
 		self.logCheck.SetValue(r.log)
+		self.removeMatchCheck.SetValue(r.action.removeMatch)
 
 	@staticmethod
 	def _index(keys: list[str], key: str) -> int:
@@ -297,6 +306,7 @@ class RuleEditorDialog(wx.Dialog):
 		r.politeness = self._politenessKeys[self.politenessChoice.GetSelection()]
 		r.action.output = self._outputKeys[self.outputChoice.GetSelection()]
 		r.action.sound = self._sound()
+		r.action.removeMatch = self.removeMatchCheck.GetValue() and r.matchType != MATCH_ANY
 		r.category = self._category()
 		r.log = self.logCheck.GetValue()
 		return r
@@ -308,6 +318,8 @@ class RuleEditorDialog(wx.Dialog):
 		self.subdomainsCheck.Enable(bool(self.domainCombo.GetValue().strip()))
 		self.patternText.Enable(matchType != MATCH_ANY)
 		self.caseCheck.Enable(matchType != MATCH_ANY)
+		# There is no matched text to remove when any text matches.
+		self.removeMatchCheck.Enable(matchType != MATCH_ANY)
 		self.politenessChoice.Enable(source in (SOURCE_ANY, SOURCE_LIVE_REGION))
 		self.soundFileText.Enable(custom)
 		self.browseButton.Enable(custom)
@@ -345,6 +357,7 @@ class RuleEditorDialog(wx.Dialog):
 		records = self.controller.history.records
 		try:
 			matches = [r for r in reversed(records) if compiled.matches(r)]
+			items = [self._testItem(compiled, r) for r in matches[:500]]
 		except TimeoutError:
 			# Translators: Reported when testing a rule whose regular expression is too slow to use.
 			message = _(
@@ -354,9 +367,26 @@ class RuleEditorDialog(wx.Dialog):
 			self.testList.Set([])
 			self._alert(message)
 			return
-		self.testList.Set([f"{r.text} ({r.appLabel or r.domain})" for r in matches[:500]])
+		self.testList.Set(items)
 		# Translators: Reports how many history entries a rule matches.
 		ui.message(_("{count} of {total} notifications match").format(count=len(matches), total=len(records)))
+
+	@staticmethod
+	def _testItem(compiled: CompiledRule, record: NotificationRecord) -> str:
+		"""A matching notification in the test list, with what would be reported if text is removed."""
+		source = record.appLabel or record.domain
+		if not compiled.rule.action.removeMatch:
+			# Translators: A notification in the rule editor's test results: its text and its app.
+			return _("{text} ({source})").format(text=record.text, source=source)
+		# Translators: Shown in the rule editor's test results when removing the matched text leaves nothing.
+		remainder = compiled.removeMatched(record.text) or _("(nothing)")
+		# Translators: A notification in the rule editor's test results, and what would be reported after
+		# the rule removes the text it matched.
+		return _("{text} ({source}), reported as: {remainder}").format(
+			text=record.text,
+			source=source,
+			remainder=remainder,
+		)
 
 	def onOk(self, evt):
 		rule = self.ruleFromControls()

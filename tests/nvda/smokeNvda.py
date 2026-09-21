@@ -829,5 +829,82 @@ class TestSecondReview(unittest.TestCase):
 			dialog.Close()
 
 
+class TestRemoveMatchedText(unittest.TestCase):
+	HELP = r"\s*press\s+enter\s+to\s+explore\s+message\s+content(?:[ \t]*[.!?])*"
+
+	@classmethod
+	def setUpClass(cls):
+		cls.app = wx.App.Get() or wx.App()
+		cls.frame = wx.Frame(None)
+
+	@classmethod
+	def tearDownClass(cls):
+		cls.frame.Destroy()
+
+	def controllerWith(self, rule):
+		controller = Controller()
+		controller.load()
+		controller.history.clear()
+		controller.rules.setRules([rule])
+		return controller
+
+	def test_liveRegionReportedWithoutTheHelp(self):
+		rule = Rule(
+			id="help",
+			name="Teams help",
+			app="ms-teams",
+			matchType="regex",
+			pattern=self.HELP,
+			action=Action(removeMatch=True),
+		)
+		controller = self.controllerWith(rule)
+		passed = []
+		spoken.clear()
+		text = "Sam: lunch? Press Enter to explore message content."
+		controller.process(rec(text, source=SOURCE_LIVE_REGION, appName="ms-teams"), lambda: passed.append(1))
+		self.assertEqual(passed, [])
+		said = " ".join(str(s) for s in spoken)
+		self.assertIn("Sam: lunch?", said)
+		self.assertNotIn("explore", said)
+		logged = controller.history.latest()
+		self.assertEqual(logged.text, text)
+		self.assertEqual(logged.presentedText, "Sam: lunch?")
+		from notificationsController.historyDialog import recordDetails
+
+		self.assertIn("Reported as: Sam: lunch?", recordDetails(logged))
+
+	def test_helpAloneIsSilent(self):
+		rule = Rule(id="help", matchType="regex", pattern=self.HELP, action=Action(removeMatch=True))
+		controller = self.controllerWith(rule)
+		passed = []
+		spoken.clear()
+		controller.process(rec("Press Enter to explore message content."), lambda: passed.append(1))
+		self.assertEqual((passed, spoken), ([], []))
+		from notificationsController.historyDialog import recordDetails
+
+		self.assertIn("(nothing)", recordDetails(controller.history.latest()))
+
+	def test_ruleEditorCheckbox(self):
+		from notificationsController.ruleEditor import RuleEditorDialog
+
+		controller = self.controllerWith(Rule(id="x"))
+		rule = Rule(id="r", matchType="contains", pattern="(edited)", action=Action(removeMatch=True))
+		dialog = RuleEditorDialog(self.frame, controller, rule, isNew=False)
+		try:
+			self.assertTrue(dialog.removeMatchCheck.GetValue())
+			self.assertTrue(dialog.ruleFromControls().action.removeMatch)
+			# Any text has nothing to remove: the option is off and not saved.
+			dialog.matchChoice.SetSelection(dialog._matchKeys.index("any"))
+			dialog.updateEnabled()
+			self.assertFalse(dialog.removeMatchCheck.IsEnabled())
+			self.assertFalse(dialog.ruleFromControls().action.removeMatch)
+		finally:
+			dialog.Destroy()
+
+	def test_labels(self):
+		self.assertIn("matched text removed", settings.actionLabel("speechBraille+trim+sound"))
+		self.assertIn("with sound", settings.actionLabel("speechBraille+trim+sound"))
+
+
 if __name__ == "__main__":
 	unittest.main(verbosity=2)

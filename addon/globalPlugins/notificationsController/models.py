@@ -61,6 +61,9 @@ BUILTIN_SOUNDS = ("chime", "blip", "alert")
 ACTION_PASSTHROUGH = "passthrough"
 ACTION_DO_NOT_DISTURB = "doNotDisturb"
 ACTION_DISABLED_BY_NVDA = "nvdaSettingOff"
+ACTION_PART_TRIM = "trim"
+"""Added to an action key when the matched text was removed before reporting."""
+ACTION_PART_SOUND = "sound"
 
 
 def domainFromUrl(url: str) -> str:
@@ -156,6 +159,8 @@ class NotificationRecord:
 	background: bool = False
 	"""True when the sending app was not the foreground app. NVDA drops background UIA notifications."""
 	details: str = ""
+	presentedText: str = ""
+	"""What was reported, when a rule removed part of the text. Empty when nothing was removed."""
 	"""Extra technical information, such as the structure of a toast, to help when writing rules."""
 	matchedRuleId: str = ""
 	matchedRuleName: str = ""
@@ -199,17 +204,21 @@ class Action:
 
 	output: str = OUTPUT_DEFAULT
 	sound: str = SOUND_NONE
+	removeMatch: bool = False
+	"""Remove the text the rule matched and report the rest, instead of the whole notification."""
 
 	@property
 	def isPassthrough(self) -> bool:
 		"""True when NVDA's own handling runs, possibly with a sound added."""
-		return self.output == OUTPUT_DEFAULT
+		return self.output == OUTPUT_DEFAULT and not self.removeMatch
 
 	def describe(self) -> str:
-		"""A stable, untranslated key for the history log, such as speech+sound."""
+		"""A stable, untranslated key for the history log, such as speech+trim+sound."""
 		parts = [self.output]
+		if self.removeMatch:
+			parts.append(ACTION_PART_TRIM)
 		if self.sound:
-			parts.append("sound")
+			parts.append(ACTION_PART_SOUND)
 		return "+".join(parts)
 
 
