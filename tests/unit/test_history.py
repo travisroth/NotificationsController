@@ -212,6 +212,34 @@ class TestPersistence(unittest.TestCase):
 		h.flush()
 		self.assertEqual(len(self.lines()), 2)
 
+	def test_turningSavingOnMergesExistingFile(self):
+		saved = self.make()
+		saved.add(rec("saved earlier", timestamp=self.clock.now - 60))
+		saved.add(rec("saved later", timestamp=self.clock.now - 10))
+		saved.flush()
+		memoryOnly = History(None, clock=self.clock)
+		kept = memoryOnly.add(rec("memory only", timestamp=self.clock.now - 30))
+		memoryOnly.setPath(self.path)
+		self.assertEqual(
+			[r.text for r in memoryOnly.records],
+			["saved earlier", "memory only", "saved later"],
+		)
+		# The in-memory entry keeps its id; the file's entries get new ones where they collide.
+		self.assertEqual(kept.id, 1)
+		self.assertEqual(len({r.id for r in memoryOnly.records}), 3)
+		memoryOnly.flush()
+		self.assertEqual(len(self.lines()), 3)
+
+	def test_turningSavingOffKeepsFileAndMemory(self):
+		h = self.make()
+		h.add(rec("a"))
+		h.flush()
+		h.setPath(None)
+		h.add(rec("b"))
+		h.flush()
+		self.assertEqual(len(self.lines()), 1)
+		self.assertEqual(len(h), 2)
+
 	def test_memoryOnly(self):
 		h = History(None, clock=self.clock)
 		h.add(rec())

@@ -78,12 +78,13 @@ class Deduper:
 
 	def __init__(self, windowSeconds: float = 0.5):
 		self.windowSeconds = windowSeconds
-		self._lastKey: tuple[str, str] | None = None
+		self._lastKey: tuple[str, str, str] | None = None
 		self._lastTime = 0.0
 
 	def isDuplicate(self, record: NotificationRecord) -> bool:
-		# Compare text as the rules do, so "Running" and "Running " count as the same.
-		key = (record.appName, normalizeText(record.text))
+		# Compare text as the rules do, so "Running" and "Running " count as the same. For toasts the
+		# app module is the Windows shell, so the sending app (the display name) tells senders apart.
+		key = (record.source, record.appDisplayName or record.appName, normalizeText(record.text))
 		duplicate = (
 			self.windowSeconds > 0
 			and key == self._lastKey

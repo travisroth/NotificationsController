@@ -207,32 +207,60 @@ class History:
 	# Persistence
 
 	def setPath(self, path: str | None) -> None:
-		"""Change where history is saved. The next flush writes every record to the new file."""
-		if path != self.path:
-			self.path = path
-			self._dirty = bool(path)
+		"""Change where history is saved, for example when the user turns saving on or off.
+
+		When the new file already holds history, its entries are merged with the ones in memory rather
+		than overwritten. The next flush writes every record to the new file.
+		"""
+		if path == self.path:
+			return
+		self.path = path
+		if not path:
+			self._pending = []
+			self._dirty = False
+			return
+		fileRecords, errors = self._readFile(path)
+		self.loadErrors = errors
+		if fileRecords:
+			taken = {r.id for r in self._records}
+			self._nextId = max([self._nextId - 1, *taken, *(r.id for r in fileRecords)]) + 1
+			for record in fileRecords:
+				if record.id <= 0 or record.id in taken:
+					record.id = self._nextId
+					self._nextId += 1
+				taken.add(record.id)
+			self._records = sorted([*fileRecords, *self._records], key=lambda r: (r.timestamp, r.id))
+		self._pending = []
+		self._dirty = True
+		self.prune()
+		self._changed()
 
 	@property
 	def needsFlush(self) -> bool:
 		return bool(self.path) and (self._dirty or bool(self._pending))
 
-	def load(self) -> None:
-		"""Read the history file, skipping any damaged lines. A missing file gives an empty history."""
-		self._records = []
-		self._pending = []
-		self._dirty = False
-		self.loadErrors = 0
-		if self.path and os.path.isfile(self.path):
-			with open(self.path, encoding="utf-8", errors="replace") as f:
+	@staticmethod
+	def _readFile(path: str) -> tuple[list[NotificationRecord], int]:
+		"""The records in a history file, and how many lines could not be read."""
+		records: list[NotificationRecord] = []
+		errors = 0
+		if os.path.isfile(path):
+			with open(path, encoding="utf-8", errors="replace") as f:
 				for line in f:
 					line = line.strip()
 					if not line:
 						continue
 					try:
-						data = json.loads(line)
-						self._records.append(NotificationRecord.fromDict(data))
+						records.append(NotificationRecord.fromDict(json.loads(line)))
 					except ValueError:
-						self.loadErrors += 1
+						errors += 1
+		return records, errors
+
+	def load(self) -> None:
+		"""Read the history file, skipping any damaged lines. A missing file gives an empty history."""
+		self._pending = []
+		self._dirty = False
+		self._records, self.loadErrors = self._readFile(self.path) if self.path else ([], 0)
 		self._records.sort(key=lambda r: (r.timestamp, r.id))
 		self._nextId = max((r.id for r in self._records), default=0) + 1
 		seen: set[int] = set()
@@ -266,10 +294,11 @@ class History:
 		self._pending = []
 		self._dirty = False
 
-	def deleteFile(self) -> None:
-		"""Remove the history file, for when the user switches to memory only history."""
-		if self.path and os.path.isfile(self.path):
-			os.remove(self.path)
+	@staticmethod
+	def deleteFile(path: str) -> None:
+		"""Remove a history file, for when the user turns off saving history."""
+		if os.path.isfile(path):
+			os.remove(path)
 
 
 def _toLine(record: NotificationRecord) -> str:

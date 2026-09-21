@@ -8,6 +8,7 @@ import os
 import tempfile
 import unittest
 
+from notificationsController import rules as rulesModule
 from notificationsController.models import (
 	MATCH_ANY,
 	MATCH_CONTAINS,
@@ -87,6 +88,49 @@ class TestTextMatching(unittest.TestCase):
 
 	def test_normalizeText(self):
 		self.assertEqual(normalizeText("  a \r\n b  "), "a b")
+
+
+class TestRegexTimeout(unittest.TestCase):
+	def test_timeoutTurnsRuleOffAndLaterRulesStillWork(self):
+		errors = []
+		rules = RuleSet(
+			[
+				rule(id="slow", name="Slow", matchType=MATCH_REGEX, pattern="anything"),
+				rule(id="next", matchType=MATCH_ANY),
+			],
+		)
+		rules.onRuleError = lambda r, error: errors.append((r.id, error))
+
+		def timeOut(compiled, text):
+			raise TimeoutError
+
+		original = rulesModule.regexSearch
+		rulesModule.regexSearch = timeOut
+		try:
+			self.assertEqual(rules.match(record("x")).id, "next")
+			self.assertEqual(errors, [("slow", rulesModule.REGEX_TIMEOUT_ERROR)])
+			# The slow rule stays off, so the next notification costs no second timeout.
+			self.assertEqual(rules.match(record("y")).id, "next")
+			self.assertEqual(len(errors), 1)
+			self.assertEqual(rules.errors(), {"slow": rulesModule.REGEX_TIMEOUT_ERROR})
+		finally:
+			rulesModule.regexSearch = original
+
+	@unittest.skipUnless(rulesModule.HAS_TIMEOUT, "needs the regex package, which NVDA ships")
+	def test_catastrophicBacktrackingIsStopped(self):
+		import time
+
+		# Exponential in the regex engine. (^(a+)+b is not: regex optimizes that one.)
+		rules = RuleSet(
+			[
+				rule(id="evil", matchType=MATCH_REGEX, pattern=r"^(a|aa)+$"),
+				rule(id="next", matchType=MATCH_ANY),
+			],
+		)
+		start = time.monotonic()
+		self.assertEqual(rules.match(record("a" * 60 + "b")).id, "next")
+		self.assertLess(time.monotonic() - start, 5)
+		self.assertIn("evil", rules.errors())
 
 
 class TestScoping(unittest.TestCase):

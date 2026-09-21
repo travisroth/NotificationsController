@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Travis Roth
 # This file is covered by the GNU General Public License version 2.
 # Imports here must run in a set order, around NVDA's test setup.
-# ruff: noqa: I001
+# ruff: noqa: I001, E402
 
 """Smoke tests that load the add-on inside NVDA's own unit test environment, without running NVDA.
 
@@ -91,8 +91,7 @@ def rec(text="Hello", source=SOURCE_UIA, appName="testapp"):
 class TestController(unittest.TestCase):
 	def setUp(self):
 		self.controller = Controller()
-		self.controller.loadRules()
-		self.controller.applySettings()
+		self.controller.load()
 		self.controller.history.clear()
 		self.passed = 0
 
@@ -123,8 +122,7 @@ class TestController(unittest.TestCase):
 		self.assertTrue(any("Speak me" in str(s) for s in spoken))
 
 	def test_saveAndReloadRules(self):
-		self.controller.rules.setRules([Rule(id="r", name="n")])
-		self.controller.saveRules()
+		self.assertTrue(self.controller.commitRules([Rule(id="r", name="n")]))
 		other = Controller()
 		other.loadRules()
 		self.assertEqual([r.name for r in other.rules.rules], ["n"])
@@ -297,6 +295,70 @@ class TestLiveRegionHook(unittest.TestCase):
 		queueHandler.pumpAll()
 		self.assertTrue(any("Pass me" in str(s) for s in spoken))
 
+	def spokeAfterPump(self, text: str) -> bool:
+		spoken.clear()
+		queueHandler.pumpAll()
+		return any(text in str(s) for s in spoken)
+
+	def test_reportQueuedBeforeUninstallGoesToNvda(self):
+		self.hook.install()
+		self.callExport("In flight", "polite")
+		self.hook.uninstall()
+		self.assertTrue(self.spokeAfterPump("In flight"))
+		self.assertEqual(self.received, [])
+
+	def test_chainedHooksRemovedFirstHookFirst(self):
+		original = self.slot()
+		later: list[tuple] = []
+		second = capture.LiveRegionHook(lambda *args: later.append(args))
+		self.hook.install()
+		second.install()
+		try:
+			# The first hook goes, but stays in the second hook's chain, inactive.
+			self.hook.uninstall()
+			self.assertEqual(self.slot(), second.callbackAddress)
+			self.callExport("One", "polite")
+			queueHandler.pumpAll()
+			self.assertEqual([a[0] for a in later], ["One"])
+			self.assertEqual(self.received, [])
+			# The second hook passes through the inactive first hook, straight to NVDA.
+			spoken.clear()
+			second.passthrough("Two", "polite")
+			queueHandler.pumpAll()
+			self.assertTrue(any("Two" in str(s) for s in spoken))
+			self.assertEqual(self.received, [])
+			# Removing the second hook puts the inactive first hook back in the slot; it still forwards.
+			second.uninstall()
+			self.assertEqual(self.slot(), self.hook.callbackAddress)
+			self.callExport("Three", "polite")
+			self.assertTrue(self.spokeAfterPump("Three"))
+			self.assertEqual(self.received, [])
+		finally:
+			second.uninstall()
+			NVDAHelper._setDllFuncPointer(
+				self.dll,
+				"_nvdaControllerInternal_reportLiveRegion",
+				NVDAHelper.nvdaControllerInternal_reportLiveRegion,
+			)
+		self.assertNotEqual(original, 0)
+
+	def test_chainedHooksRemovedLastHookFirst(self):
+		original = self.slot()
+		second = capture.LiveRegionHook(lambda *args: None)
+		self.hook.install()
+		second.install()
+		second.uninstall()
+		self.assertEqual(self.slot(), self.hook.callbackAddress)
+		self.hook.uninstall()
+		self.assertEqual(self.slot(), original)
+
+	def test_uninstalledHookDropsHandlerAndCannotReinstall(self):
+		self.hook.install()
+		self.hook.uninstall()
+		self.assertFalse(self.hook.active)
+		self.assertIsNone(self.hook._handler)
+		self.assertFalse(self.hook.install())
+
 
 class TestDialogs(unittest.TestCase):
 	@classmethod
@@ -304,8 +366,8 @@ class TestDialogs(unittest.TestCase):
 		cls.app = wx.App.Get() or wx.App()
 		cls.frame = wx.Frame(None)
 		cls.controller = Controller()
-		cls.controller.loadRules()
-		cls.controller.applySettings()
+		cls.controller.load()
+		cls.controller.history.clear()
 		cls.controller.history.add(rec("From Teams", appName="ms-teams"))
 		live = rec("Score update", source=SOURCE_LIVE_REGION, appName="chrome")
 		live.url = "https://www.example.com/scores"
@@ -358,7 +420,7 @@ class TestDialogs(unittest.TestCase):
 		from notificationsController.ruleEditor import silenceSiteRule
 
 		controller = Controller()
-		controller.applySettings()
+		controller.load()
 		controller.rules.setRules([silenceSiteRule("www.example.com")])
 		live = rec("Ticker", source=SOURCE_LIVE_REGION, appName="chrome")
 		live.domain = "news.example.com"
@@ -373,7 +435,7 @@ class TestDialogs(unittest.TestCase):
 		from notificationsController.historyDialog import HistoryDialog
 
 		controller = Controller()
-		controller.applySettings()
+		controller.load()
 		controller.history.clear()
 		dialog = HistoryDialog(self.frame, controller, plugin=None)
 		try:
@@ -401,6 +463,160 @@ class TestPluginModule(unittest.TestCase):
 	def test_outputLabels(self):
 		self.assertTrue(settings.actionLabel("speech+sound"))
 		output.present("x", Action(OUTPUT_NONE))
+
+
+class TestUiaProcessing(unittest.TestCase):
+	"""Custom speech keeps NVDA's handling of notifications that supersede earlier ones."""
+
+	def setUp(self):
+		self.cancelled = 0
+		self._savedCancel = speech.cancelSpeech
+
+		def cancel():
+			self.cancelled += 1
+
+		speech.cancelSpeech = cancel
+
+	def tearDown(self):
+		speech.cancelSpeech = self._savedCancel
+
+	def process(self, processing):
+		controller = Controller()
+		controller.load()
+		controller.rules.setRules([Rule(id="r", action=Action(OUTPUT_SPEECH), matchType="any")])
+		record = rec("Downloading 40%")
+		record.notificationProcessing = processing
+		controller.process(record, lambda: None)
+
+	def test_mostRecentCancelsEarlierSpeech(self):
+		import UIAHandler
+
+		self.process(UIAHandler.NotificationProcessing_MostRecent)
+		self.process(UIAHandler.NotificationProcessing_ImportantMostRecent)
+		self.assertEqual(self.cancelled, 2)
+
+	def test_otherProcessingDoesNotCancel(self):
+		import UIAHandler
+
+		self.process(UIAHandler.NotificationProcessing_All)
+		self.process(None)
+		self.assertEqual(self.cancelled, 0)
+
+
+class TestAlertPendingFocus(unittest.TestCase):
+	def test_focusAboutToEnterAlertIsNotReportable(self):
+		import api
+		import controlTypes
+		import eventHandler
+
+		alert = TestToast.node(controlTypes.Role.ALERT, "", "Saved", [])
+		processed = []
+		saved = (eventHandler.isPendingEvents, api.processPendingEvents, api.getFocusAncestors)
+		eventHandler.isPendingEvents = lambda eventName=None, obj=None: eventName == "gainFocus"
+		api.processPendingEvents = lambda *a, **k: processed.append(True)
+		# Once the pending focus event is processed, focus is inside the alert.
+		api.getFocusAncestors = lambda: [alert] if processed else []
+		try:
+			self.assertFalse(capture.isReportableAlert(alert))
+			self.assertEqual(processed, [True])
+		finally:
+			eventHandler.isPendingEvents, api.processPendingEvents, api.getFocusAncestors = saved
+
+
+class TestFailedRuleSave(unittest.TestCase):
+	"""When the rules file cannot be written, nothing changes: not the rules in use, not the list."""
+
+	@classmethod
+	def setUpClass(cls):
+		cls.app = wx.App.Get() or wx.App()
+		cls.frame = wx.Frame(None)
+
+	@classmethod
+	def tearDownClass(cls):
+		cls.frame.Destroy()
+
+	def setUp(self):
+		self.controller = Controller()
+		self.controller.load()
+		self.assertTrue(self.controller.commitRules([Rule(id="keep", name="Keep", enabled=True)]))
+		# A rules path whose folder is a file cannot be written.
+		blocker = os.path.join(_tempDir.name, "blocker")
+		with open(blocker, "w") as f:
+			f.write("x")
+		self._savedPath = settings.rulesPath
+		settings.rulesPath = lambda: os.path.join(blocker, "rules.json")
+		from gui.message import MessageDialog
+
+		self.alerts = []
+		self._savedAlert = MessageDialog.alert
+		MessageDialog.alert = classmethod(lambda cls, message, *a, **k: self.alerts.append(message))
+
+	def tearDown(self):
+		from gui.message import MessageDialog
+
+		settings.rulesPath = self._savedPath
+		MessageDialog.alert = self._savedAlert
+
+	def assertUnchanged(self):
+		self.assertEqual([(r.id, r.enabled) for r in self.controller.rules.rules], [("keep", True)])
+
+	def test_commitRulesFails(self):
+		self.assertFalse(self.controller.commitRules([]))
+		self.assertUnchanged()
+
+	def test_addRuleFails(self):
+		from notificationsController.ruleEditor import addRule
+
+		self.assertFalse(addRule(self.controller, Rule(id="new")))
+		self.assertUnchanged()
+		self.assertEqual(len(self.alerts), 1)
+
+	def test_rulesDialogChangesFail(self):
+		from notificationsController.rulesDialog import RulesDialog
+
+		dialog = RulesDialog(self.frame, self.controller)
+		try:
+			dialog.select(0)
+			dialog.onToggle(None)
+			dialog.onDuplicate(None)
+			self.assertFalse(dialog.save([], 0))
+			self.assertUnchanged()
+			self.assertEqual(dialog.list.GetItemCount(), 1)
+			self.assertEqual(len(self.alerts), 3)
+		finally:
+			dialog.Close()
+
+
+class TestStorageSettings(unittest.TestCase):
+	def test_storageSettingsAreNotInProfiles(self):
+		for key in settings.LEGACY_STORAGE_KEYS:
+			self.assertNotIn(key, settings.confspec)
+
+	def test_turningSavingOffDeletesAndOnMerges(self):
+		from notificationsController.storage import StorageSettings
+
+		controller = Controller()
+		controller.load()
+		controller.setStorage(StorageSettings(persistHistory=True))
+		controller.history.clear()
+		controller.process(rec("Saved"), lambda: None)
+		controller.flush()
+		path = settings.historyPath()
+		self.assertTrue(os.path.isfile(path))
+		controller.setStorage(StorageSettings(persistHistory=False))
+		self.assertFalse(os.path.isfile(path))
+		controller.process(rec("Memory only"), lambda: None)
+		# Another session saved history meanwhile; turning saving back on keeps both.
+		other = Controller()
+		other.load()
+		other.history.setPath(path)
+		other.history.add(rec("From elsewhere"))
+		other.flush()
+		controller.setStorage(StorageSettings(persistHistory=True))
+		texts = [r.text for r in controller.history.records]
+		self.assertIn("From elsewhere", texts)
+		self.assertIn("Memory only", texts)
+		self.assertIn("Saved", texts)
 
 
 if __name__ == "__main__":

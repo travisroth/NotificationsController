@@ -15,9 +15,10 @@ from logHandler import log
 
 from . import output, settings
 from .history import History
-from .models import NotificationRecord
+from .models import NotificationRecord, Rule
 from .policy import Deduper, decide
 from .rules import RuleSet
+from .storage import StorageSettings
 
 FLUSH_INTERVAL_MS = 3000
 PRUNE_INTERVAL_MS = 60 * 60 * 1000
@@ -39,6 +40,7 @@ class Controller:
 	def __init__(self):
 		self.rules = RuleSet()
 		self.rulesLoadError: str | None = None
+		self.storage = StorageSettings()
 		self.history = History()
 		self.deduper = Deduper()
 		self._flushTimer: _Timer | None = None
@@ -48,8 +50,18 @@ class Controller:
 	# Lifecycle
 
 	def start(self) -> None:
+		self.load()
+		self._flushTimer = _Timer(self.flush)
+		self._flushTimer.Start(FLUSH_INTERVAL_MS)
+		self._pruneTimer = _Timer(self.history.prune)
+		self._pruneTimer.Start(PRUNE_INTERVAL_MS)
+
+	def load(self) -> None:
+		"""Read rules, storage settings and history."""
 		self.loadRules()
-		self.applySettings()
+		self.storage = self._loadStorage()
+		self.history.path = settings.historyPath() if self.storage.persistHistory else None
+		self._applyStorageLimits()
 		try:
 			self.history.load()
 			if self.history.loadErrors:
@@ -58,10 +70,6 @@ class Controller:
 				)
 		except OSError:
 			log.error("NotificationsController: could not read history", exc_info=True)
-		self._flushTimer = _Timer(self.flush)
-		self._flushTimer.Start(FLUSH_INTERVAL_MS)
-		self._pruneTimer = _Timer(self.history.prune)
-		self._pruneTimer.Start(PRUNE_INTERVAL_MS)
 
 	def stop(self) -> None:
 		for timer in (self._flushTimer, self._pruneTimer):
@@ -78,49 +86,98 @@ class Controller:
 		except OSError:
 			log.error("NotificationsController: could not save history", exc_info=True)
 
-	def applySettings(self) -> None:
-		conf = settings.conf()
-		self.history.retentionSeconds = conf["retentionHours"] * 3600
-		self.history.maxEntries = conf["maxEntries"]
-		self.history.keepImportant = conf["keepImportant"]
-		if conf["persistHistory"]:
-			self.history.setPath(settings.historyPath())
-		else:
-			if self.history.path:
-				try:
-					self.history.deleteFile()
-				except OSError:
-					log.error("NotificationsController: could not delete history file", exc_info=True)
-			self.history.setPath(None)
-		self.deduper.windowSeconds = conf["dedupeMs"] / 1000
+	# Storage settings
+
+	def _loadStorage(self) -> StorageSettings:
+		loaded = StorageSettings.load(settings.storagePath())
+		if loaded is not None:
+			return loaded
+		# First run of this version: carry over anything an earlier version kept in NVDA's configuration.
+		storage = StorageSettings.fromDict(settings.legacyStorageValues())
+		try:
+			storage.save(settings.storagePath())
+		except OSError:
+			log.error("NotificationsController: could not save storage settings", exc_info=True)
+		return storage
+
+	def _applyStorageLimits(self) -> None:
+		self.history.retentionSeconds = self.storage.retentionSeconds
+		self.history.maxEntries = self.storage.maxEntries
+		self.history.keepImportant = self.storage.keepImportant
+		self.deduper.windowSeconds = self.storage.dedupeMs / 1000
 		self.history.prune()
 
+	def setStorage(self, storage: StorageSettings) -> None:
+		"""Apply storage settings the user changed, and save them.
+
+		Turning off saving is the one place the history file is deleted, because that is an explicit
+		request to stop keeping notifications on disk. Turning saving on merges any history already in
+		the file with what is in memory.
+		"""
+		old = self.storage
+		self.storage = storage
+		try:
+			storage.save(settings.storagePath())
+		except OSError:
+			log.error("NotificationsController: could not save storage settings", exc_info=True)
+		if old.persistHistory and not storage.persistHistory:
+			self.history.setPath(None)
+			try:
+				History.deleteFile(settings.historyPath())
+			except OSError:
+				log.error("NotificationsController: could not delete history file", exc_info=True)
+		elif storage.persistHistory and not old.persistHistory:
+			try:
+				self.history.setPath(settings.historyPath())
+			except OSError:
+				log.error("NotificationsController: could not read history file", exc_info=True)
+		self._applyStorageLimits()
+
 	# Rules
+
+	def _useRules(self, rules: RuleSet) -> None:
+		rules.onRuleError = self._onRuleError
+		self.rules = rules
+
+	@staticmethod
+	def _onRuleError(rule: Rule, error: str) -> None:
+		log.warning(
+			f"NotificationsController: rule {rule.name!r} is turned off until the rules change: "
+			f"its regular expression {error}",
+		)
 
 	def loadRules(self) -> None:
 		path = settings.rulesPath()
 		try:
-			self.rules = RuleSet.load(path)
+			self._useRules(RuleSet.load(path))
 			self.rulesLoadError = None
 		except (OSError, ValueError) as e:
 			# Keep the damaged file for the user to look at, and start with no rules.
 			log.error(f"NotificationsController: could not read {path}", exc_info=True)
 			self.rulesLoadError = str(e)
-			self.rules = RuleSet()
+			self._useRules(RuleSet())
 			try:
 				os.replace(path, path + ".damaged")
 			except OSError:
 				pass
 
-	def saveRules(self) -> None:
-		self.rules.recompile()
+	def commitRules(self, rules: list[Rule]) -> bool:
+		"""Save a new list of rules, and only once it is saved, start using it.
+
+		Callers build the new list from copies, so when saving fails, the rules in use, the file and the
+		rules window all stay as they were.
+		:return: Whether the rules were saved.
+		"""
+		candidate = RuleSet(rules)
 		try:
-			self.rules.save(settings.rulesPath())
+			candidate.save(settings.rulesPath())
 		except OSError:
 			log.error("NotificationsController: could not save rules", exc_info=True)
-			raise
+			return False
+		self._useRules(candidate)
 		for callback in list(self.onRulesChanged):
 			callback()
+		return True
 
 	# Notifications
 
@@ -149,7 +206,12 @@ class Controller:
 				passed = True
 				passthrough()
 			elif decision.present:
-				output.present(record.text, decision.present, record.politeness)
+				output.present(
+					record.text,
+					decision.present,
+					record.politeness,
+					record.notificationProcessing,
+				)
 			if decision.log and conf["logEnabled"] and not duplicate:
 				self.history.add(record)
 		except Exception:

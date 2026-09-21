@@ -25,6 +25,7 @@ from ctypes import POINTER, WINFUNCTYPE, byref, c_long, c_void_p, c_wchar_p, cas
 
 import api
 import controlTypes
+import eventHandler
 import queueHandler
 import treeInterceptorHandler
 from logHandler import log
@@ -256,12 +257,17 @@ _MAX_ALERT_NODES = 60
 
 
 def isReportableAlert(obj: NVDAObject) -> bool:
-	"""Whether NVDA would report an alert event on this object, as NVDA's IAccessible alert handler does:
-	the object has the alert role and the focus is not inside it.
+	"""Whether NVDA would report an alert event on this object, as NVDA's IAccessible alert handler
+	decides: the object has the alert role and the focus is not inside it.
+
+	Like NVDA, a pending focus event is processed first, since an alert event can arrive just before the
+	focus moves into the alert, and then NVDA does not report it.
 	"""
 	if _safe(lambda: obj.role, None) != controlTypes.Role.ALERT:
 		return False
 	try:
+		if eventHandler.isPendingEvents("gainFocus"):
+			api.processPendingEvents()
 		return obj not in api.getFocusAncestors() and obj != api.getFocusObject()
 	except Exception:
 		return True
@@ -332,8 +338,10 @@ def fromHelperLiveRegion(text: str, politeness: str, processId: int) -> Notifica
 _ReportLiveRegionType = WINFUNCTYPE(c_long, c_wchar_p, c_wchar_p)
 _DLL_SYMBOL = "_nvdaControllerInternal_reportLiveRegion"
 _keepAlive: list[object] = []
-"""Callbacks ever handed to the helper. Never released, so a report arriving on an RPC thread while
-the add-on is being unloaded cannot call into freed memory."""
+"""Callbacks ever handed to the helper. Never released: another add-on that hooked the same pointer
+after this one may still call it, and a report may be in flight on an RPC thread while the add-on
+unloads. A released callback would be a call into freed memory. Each kept callback holds only its small
+hook object, which drops the plugin's handler when uninstalled."""
 
 
 class LiveRegionHook:
@@ -342,16 +350,24 @@ class LiveRegionHook:
 	The helper calls through a function pointer exported by nvdaHelperLocal. The hook points it at
 	its own callback, which runs on an RPC thread, notes the calling process and queues the report to
 	NVDA's main thread. The handler there decides what to do and calls passthrough() to let NVDA
-	present it as usual. The previous pointer is kept, so another add-on's hook still works, and is put
-	back on uninstall.
+	present it as usual.
+
+	Hooks chain: the pointer that was there before is kept and called for passthrough, so a hook another
+	add-on installed earlier still works. Uninstalling puts the previous pointer back when this hook is
+	still the one installed. When another hook was installed on top, this hook's callback stays in that
+	hook's chain, so uninstalling also makes it inactive: an inactive callback forwards every report
+	straight to the previous pointer and never reaches the add-on again, including reports that were
+	already queued when it was uninstalled.
 	"""
 
 	def __init__(self, handler: Callable[[str, str, int], None]):
-		self._handler = handler
+		self._handler: Callable[[str, str, int], None] | None = handler
 		self._callback = _ReportLiveRegionType(self._rpcCallback)
 		_keepAlive.append(self._callback)
 		self._previousPointer: int | None = None
 		self._previous: Callable[[str, str], int] | None = None
+		self.active = False
+		"""True while reports go to the handler. Once False, it stays False."""
 		self.installed = False
 
 	@staticmethod
@@ -360,9 +376,16 @@ class LiveRegionHook:
 
 		return cast(getattr(NVDAHelper.localLib.dll, _DLL_SYMBOL), POINTER(c_void_p)).contents
 
+	@property
+	def callbackAddress(self) -> int:
+		return cast(self._callback, c_void_p).value or 0
+
 	def install(self) -> bool:
 		if self.installed:
 			return True
+		if self._handler is None:
+			# Uninstalled hooks are not reused; make a new one.
+			return False
 		try:
 			slot = self._pointerSlot()
 			self._previousPointer = slot.value
@@ -370,40 +393,57 @@ class LiveRegionHook:
 				log.warning("NotificationsController: live region callback not set, not hooking it")
 				return False
 			self._previous = _ReportLiveRegionType(self._previousPointer)
-			slot.value = cast(self._callback, c_void_p).value
+			self.active = True
+			slot.value = self.callbackAddress
 		except Exception:
+			self.active = False
 			log.error("NotificationsController: could not hook live region reports", exc_info=True)
 			return False
 		self.installed = True
 		return True
 
 	def uninstall(self) -> None:
+		# Deactivate before touching the pointer, so from this moment no report reaches the handler.
+		self.active = False
+		self._handler = None
 		if not self.installed:
 			return
+		self.installed = False
 		try:
 			slot = self._pointerSlot()
-			if slot.value == cast(self._callback, c_void_p).value:
+			if slot.value == self.callbackAddress:
 				slot.value = self._previousPointer
 			else:
-				log.warning(
-					"NotificationsController: live region callback was replaced by someone else; leaving it",
+				log.debug(
+					"NotificationsController: another hook was installed after this one; "
+					"leaving this hook inactive in its chain",
 				)
 		except Exception:
 			log.error("NotificationsController: could not unhook live region reports", exc_info=True)
-		self.installed = False
 
 	def passthrough(self, text: str, politeness: str) -> None:
 		"""Let NVDA handle a live region report as it would without the add-on."""
 		if self._previous:
 			self._previous(text, politeness)
 
+	def _dispatch(self, text: str, politeness: str, processId: int) -> None:
+		"""Runs on the main thread for each queued report."""
+		handler = self._handler
+		if not self.active or handler is None:
+			# Uninstalled after this report was queued.
+			self.passthrough(text, politeness)
+			return
+		handler(text, politeness, processId)
+
 	def _rpcCallback(self, text: str | None, politeness: str | None) -> int:
 		# Runs on an RPC thread. Must not raise, and must not touch NVDA objects.
 		text = text or ""
 		politeness = politeness or ""
+		if not self.active:
+			return self._previous(text, politeness) if self._previous else 0
 		try:
 			processId = _rpcClientProcessId()
-			queueHandler.queueFunction(queueHandler.eventQueue, self._handler, text, politeness, processId)
+			queueHandler.queueFunction(queueHandler.eventQueue, self._dispatch, text, politeness, processId)
 		except Exception:
 			log.error("NotificationsController: live region callback failed", exc_info=True)
 			if self._previous:

@@ -38,14 +38,37 @@ def playSound(sound: str) -> None:
 		log.error(f"NotificationsController: could not play {path}", exc_info=True)
 
 
-def present(text: str, action: Action, politeness: str = "") -> None:
+def _supersedesEarlier(notificationProcessing: int | None) -> bool:
+	"""Whether a UIA notification replaces earlier ones, as progress and status notifications do."""
+	import UIAHandler
+
+	return notificationProcessing in (
+		UIAHandler.NotificationProcessing_ImportantMostRecent,
+		UIAHandler.NotificationProcessing_MostRecent,
+	)
+
+
+def present(
+	text: str,
+	action: Action,
+	politeness: str = "",
+	notificationProcessing: int | None = None,
+) -> None:
 	"""Speak and braille the text as the action asks. The action's sound is played separately.
 
 	The default output (NVDA's own handling) is not presented here; the caller lets NVDA run.
+	:param notificationProcessing: For UIA notifications, how the app asked for it to be processed.
+		As NVDA does, a notification that supersedes earlier ones cancels speech that has not finished,
+		or during say all is spoken straight away, so a stream of status updates does not pile up.
 	"""
 	if not text:
 		return
 	priority = Spri.NEXT if politeness == POLITENESS_ASSERTIVE else None
+	if action.output in (OUTPUT_SPEECH, OUTPUT_SPEECH_BRAILLE) and _supersedesEarlier(notificationProcessing):
+		if speech.sayAll.SayAllHandler.isRunning():
+			priority = Spri.NOW
+		else:
+			speech.cancelSpeech()
 	if action.output == OUTPUT_SPEECH_BRAILLE:
 		ui.message(text, speechPriority=priority)
 	elif action.output == OUTPUT_SPEECH:

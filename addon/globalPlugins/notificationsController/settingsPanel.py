@@ -13,6 +13,7 @@ from gui.message import MessageDialog, ReturnCode
 from gui.settingsDialogs import SettingsPanel
 
 from . import settings
+from .storage import MAX_DEDUPE_MS, MAX_ENTRIES, MIN_ENTRIES, StorageSettings
 
 addonHandler.initTranslation()
 
@@ -25,6 +26,7 @@ class NotificationsControllerPanel(SettingsPanel):
 
 	def makeSettings(self, sizer: wx.BoxSizer):
 		conf = settings.conf()
+		storage = self.controller.storage if self.controller else StorageSettings()
 		helper = guiHelper.BoxSizerHelper(self, sizer=sizer)
 
 		self.enabledCheck = helper.addItem(
@@ -49,6 +51,13 @@ class NotificationsControllerPanel(SettingsPanel):
 			wx.CheckBox(historyBox, label=_("&Log notifications to history")),
 		)
 		self.logCheck.SetValue(conf["logEnabled"])
+		historyGroup.addItem(
+			wx.StaticText(
+				historyBox,
+				# Translators: Explains that the settings after it are shared by all configuration profiles.
+				label=_("These storage settings apply to all configuration profiles:"),
+			),
+		)
 		self.persistCheck = historyGroup.addItem(
 			wx.CheckBox(
 				historyBox,
@@ -58,14 +67,14 @@ class NotificationsControllerPanel(SettingsPanel):
 				),
 			),
 		)
-		self.persistCheck.SetValue(conf["persistHistory"])
+		self.persistCheck.SetValue(storage.persistHistory)
 		self.retentionChoice = historyGroup.addLabeledControl(
 			# Translators: The label of a choice in the add-on's settings.
 			_("Delete notifications &older than:"),
 			wx.Choice,
 			choices=[settings.retentionLabel(h) for h in settings.RETENTION_CHOICES],
 		)
-		retention = conf["retentionHours"]
+		retention = storage.retentionHours
 		choices = list(settings.RETENTION_CHOICES)
 		self.retentionChoice.SetSelection(
 			choices.index(retention) if retention in choices else choices.index(24)
@@ -74,22 +83,22 @@ class NotificationsControllerPanel(SettingsPanel):
 			# Translators: The label of a number field in the add-on's settings.
 			_("&Maximum notifications to keep:"),
 			nvdaControls.SelectOnFocusSpinCtrl,
-			min=100,
-			max=100000,
-			initial=conf["maxEntries"],
+			min=MIN_ENTRIES,
+			max=MAX_ENTRIES,
+			initial=storage.maxEntries,
 		)
 		self.keepImportantCheck = historyGroup.addItem(
 			# Translators: A checkbox in the add-on's settings.
 			wx.CheckBox(historyBox, label=_("Never automatically delete &important notifications")),
 		)
-		self.keepImportantCheck.SetValue(conf["keepImportant"])
+		self.keepImportantCheck.SetValue(storage.keepImportant)
 		self.dedupeSpin = historyGroup.addLabeledControl(
 			# Translators: The label of a number field in the add-on's settings.
 			_("Log a repeated notification only once within (millisecond&s):"),
 			nvdaControls.SelectOnFocusSpinCtrl,
 			min=0,
-			max=10000,
-			initial=conf["dedupeMs"],
+			max=MAX_DEDUPE_MS,
+			initial=storage.dedupeMs,
 		)
 		# Translators: A button in the add-on's settings that deletes every notification in history.
 		clearButton = historyGroup.addItem(wx.Button(historyBox, label=_("&Clear history...")))
@@ -137,14 +146,17 @@ class NotificationsControllerPanel(SettingsPanel):
 		conf["enabled"] = self.enabledCheck.GetValue()
 		conf["doNotDisturb"] = self.doNotDisturbCheck.GetValue()
 		conf["logEnabled"] = self.logCheck.GetValue()
-		conf["persistHistory"] = self.persistCheck.GetValue()
-		conf["retentionHours"] = settings.RETENTION_CHOICES[self.retentionChoice.GetSelection()]
-		conf["maxEntries"] = self.maxEntriesSpin.GetValue()
-		conf["keepImportant"] = self.keepImportantCheck.GetValue()
-		conf["dedupeMs"] = self.dedupeSpin.GetValue()
 		conf["captureUIA"] = self.uiaCheck.GetValue()
 		conf["captureToasts"] = self.toastCheck.GetValue()
 		conf["captureLiveRegions"] = self.liveRegionCheck.GetValue()
 		conf["captureAlerts"] = self.alertCheck.GetValue()
 		if self.controller:
-			self.controller.applySettings()
+			self.controller.setStorage(
+				StorageSettings(
+					persistHistory=self.persistCheck.GetValue(),
+					retentionHours=settings.RETENTION_CHOICES[self.retentionChoice.GetSelection()],
+					maxEntries=self.maxEntriesSpin.GetValue(),
+					keepImportant=self.keepImportantCheck.GetValue(),
+					dedupeMs=self.dedupeSpin.GetValue(),
+				),
+			)

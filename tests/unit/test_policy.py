@@ -16,6 +16,7 @@ from notificationsController.models import (
 	OUTPUT_NONE,
 	OUTPUT_SPEECH,
 	SOURCE_LIVE_REGION,
+	SOURCE_TOAST,
 	SOURCE_UIA,
 	Action,
 	NotificationRecord,
@@ -96,6 +97,20 @@ class TestDeduper(unittest.TestCase):
 		dd.isDuplicate(rec("Running", 100.0))
 		self.assertTrue(dd.isDuplicate(rec("Running ", 100.0)))
 		self.assertTrue(dd.isDuplicate(rec(" Running\n", 100.1)))
+
+	def test_toastsFromDifferentSendersAreNotDuplicates(self):
+		dd = Deduper(0.5)
+		first = rec("Meeting starts now", 100.0, source=SOURCE_TOAST, appName="shellexperiencehost")
+		first.appDisplayName = "Outlook"
+		second = rec("Meeting starts now", 100.1, source=SOURCE_TOAST, appName="shellexperiencehost")
+		second.appDisplayName = "Teams"
+		self.assertFalse(dd.isDuplicate(first))
+		self.assertFalse(dd.isDuplicate(second))
+
+	def test_sameTextFromDifferentKindsIsNotDuplicate(self):
+		dd = Deduper(0.5)
+		dd.isDuplicate(rec("Saved", 100.0))
+		self.assertFalse(dd.isDuplicate(rec("Saved", 100.1, source=SOURCE_LIVE_REGION)))
 
 	def test_differentTextOrApp(self):
 		dd = Deduper(0.5)

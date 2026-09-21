@@ -22,7 +22,7 @@ from gui.message import MessageDialog, ReturnCode
 from . import settings
 from .controller import Controller
 from .models import MATCH_ANY, Rule
-from .ruleEditor import editRule
+from .ruleEditor import editRule, reportSaveFailure
 from .rules import RuleSet, newRuleId, writeJsonAtomic
 
 addonHandler.initTranslation()
@@ -223,23 +223,25 @@ class RulesDialog(wx.Dialog):
 		else:
 			self.toggleButton.SetLabel(_("Disa&ble"))
 
-	def save(self, selectIndex: int | None = None) -> None:
+	def save(self, rules: list[Rule], selectIndex: int) -> bool:
+		"""Save a changed copy of the rules and start using it.
+
+		When saving fails, the rules in use and the list stay as they were, and the error is reported.
+		:return: Whether the change was saved, so callers only announce changes that happened.
+		"""
+		previousIndex = self.selectedIndex()
 		self._saving = True
 		try:
-			self.controller.saveRules()
-		except OSError as e:
-			MessageDialog.alert(
-				# Translators: Shown when rules could not be saved.
-				_("The rules could not be saved: {error}").format(error=e),
-				# Translators: The title of an error message.
-				_("Error"),
-				parent=self,
-			)
+			saved = self.controller.commitRules(rules)
 		finally:
 			self._saving = False
+		if not saved:
+			reportSaveFailure(self)
+			self.select(previousIndex)
+			return False
 		self.fill()
-		if selectIndex is not None:
-			self.select(selectIndex)
+		self.select(selectIndex)
+		return True
 
 	def onRulesChanged(self) -> None:
 		"""Rules changed elsewhere, such as a rule added from the history window."""
@@ -255,8 +257,9 @@ class RulesDialog(wx.Dialog):
 		rule = editRule(self, self.controller, Rule(id=newRuleId()), isNew=True)
 		if rule:
 			index = max(self.selectedIndex(), 0)
-			self.rules.insert(index, rule)
-			self.save(index)
+			rules = list(self.rules)
+			rules.insert(index, rule)
+			self.save(rules, index)
 
 	def onEdit(self, evt):
 		index = self.selectedIndex()
@@ -264,8 +267,9 @@ class RulesDialog(wx.Dialog):
 			return
 		rule = editRule(self, self.controller, self.rules[index], isNew=False)
 		if rule:
-			self.rules[index] = rule
-			self.save(index)
+			rules = list(self.rules)
+			rules[index] = rule
+			self.save(rules, index)
 
 	def onDuplicate(self, evt):
 		index = self.selectedIndex()
@@ -275,16 +279,21 @@ class RulesDialog(wx.Dialog):
 		rule.id = newRuleId()
 		# Translators: The name of a copy of a rule.
 		rule.name = _("Copy of {name}").format(name=rule.name)
-		self.rules.insert(index + 1, rule)
-		self.save(index + 1)
+		rules = list(self.rules)
+		rules.insert(index + 1, rule)
+		self.save(rules, index + 1)
 
 	def onToggle(self, evt):
 		index = self.selectedIndex()
 		if index < 0:
 			return
-		rule = self.rules[index]
+		# Change a copy: the rule in use must not change unless the save works.
+		rule = copy.deepcopy(self.rules[index])
 		rule.enabled = not rule.enabled
-		self.save(index)
+		rules = list(self.rules)
+		rules[index] = rule
+		if not self.save(rules, index):
+			return
 		if rule.enabled:
 			# Translators: Reported when a rule is turned on.
 			ui.message(_("Enabled"))
@@ -304,16 +313,19 @@ class RulesDialog(wx.Dialog):
 			parent=self,
 		)
 		if result == ReturnCode.OK:
-			del self.rules[index]
-			self.save(min(index, len(self.rules) - 1))
+			rules = list(self.rules)
+			del rules[index]
+			self.save(rules, min(index, len(rules) - 1))
 
 	def move(self, step: int) -> None:
 		index = self.selectedIndex()
 		newIndex = index + step
 		if index < 0 or not 0 <= newIndex < len(self.rules):
 			return
-		self.rules[index], self.rules[newIndex] = self.rules[newIndex], self.rules[index]
-		self.save(newIndex)
+		rules = list(self.rules)
+		rules[index], rules[newIndex] = rules[newIndex], rules[index]
+		if not self.save(rules, newIndex):
+			return
 		# Translators: Reported after moving a rule, with its new position.
 		ui.message(_("Position {n}").format(n=newIndex + 1))
 
@@ -357,8 +369,9 @@ class RulesDialog(wx.Dialog):
 		for rule in imported:
 			if rule.id in existingIds:
 				rule.id = newRuleId()
-		self.rules.extend(imported)
-		self.save(len(self.rules) - 1)
+		rules = [*self.rules, *imported]
+		if not self.save(rules, len(rules) - 1):
+			return
 		# Translators: Reported after importing rules.
 		ui.message(ngettext("Imported {n} rule", "Imported {n} rules", len(imported)).format(n=len(imported)))
 

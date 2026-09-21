@@ -19,12 +19,13 @@ jobs:
     steps:
     - uses: actions/checkout@v5
 
-    - run: echo -e "pre-commit\nscons\nmarkdown">requirements.txt
+    - run: echo -e "pre-commit\nscons\nmarkdown\nruff==0.16.8\nregex">requirements.txt
 
     - name: Set up Python
       uses: actions/setup-python@v6
       with:
-        python-version: 3.11
+        # The Python that NVDA 2026 runs on.
+        python-version: 3.13
         cache: 'pip'
 
     - name: Install dependencies
@@ -36,6 +37,16 @@ jobs:
 
     - name: Code checks
       run: export SKIP=no-commit-to-branch; pre-commit run --all
+
+    # The add-on's own code. sconstruct and site_scons come from the NVDA add-on template.
+    - name: Lint
+      run: ruff check addon tests tools buildVars.py && ruff format --check addon tests tools
+
+    # The parts of the add-on that do not need NVDA. The regex package, which NVDA ships, is installed
+    # so the regular expression timeout is tested as it runs inside NVDA. The smoke tests in tests/nvda
+    # need an NVDA source checkout with its helper DLLs built, so they run locally.
+    - name: Unit tests
+      run: python -m unittest discover -s . -t . -v
 
     - name: building addon
       run: scons && scons pot

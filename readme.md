@@ -75,7 +75,7 @@ Every field you fill in must match. Empty fields match anything.
 	1. Starts with, the default, and the most common choice.
 	2. Contains.
 	3. Is exactly.
-	4. Regular expression: a Python regular expression, searched anywhere in the text.
+	4. Regular expression: a Python regular expression, searched anywhere in the text. A pattern that takes too long on a notification (more than a tenth of a second) turns its rule off until the rules change, so a slow pattern cannot freeze NVDA. The rule is marked with an error in the rules list, and the NVDA log says which rule it was. The Test against history button warns about slow patterns before you save.
 	5. Any text.
 
 	Matching ignores differences in spaces and line breaks, and ignores case unless Case sensitive is checked.
@@ -127,10 +127,12 @@ The previous and next commands let you step through the history without opening 
 
 Open the NVDA menu, Preferences, Settings, Notifications Controller, or use Tools, Notifications Controller, Settings.
 
+The first settings, and the choice of what to handle, follow NVDA's configuration profiles, so a profile can, for example, turn on Do not disturb. The history storage settings (items 4 to 8) are shared by all profiles, because they describe the one history file: a profile switch never starts or stops saving notifications to disk, and never deletes history.
+
 1. Use rules for notifications: when off, NVDA handles every notification as usual and nothing is logged.
 2. Do not disturb.
 3. Log notifications to history.
-4. Keep history after NVDA restarts. When on, history is saved as plain text in your NVDA settings folder. Notifications can contain private messages, so turn this off if you do not want them saved to disk. Turning it off deletes the saved history file; the history then lasts until NVDA exits.
+4. Keep history after NVDA restarts. When on, history is saved as plain text in your NVDA settings folder. Notifications can contain private messages, so turn this off if you do not want them saved to disk. Turning it off deletes the saved history file; the history then lasts until NVDA exits. Turning it back on keeps what is in memory and adds it to any history already in the file.
 5. Delete notifications older than: from 1 hour to 30 days, or keep them until the entry limit is reached. The default is 1 day.
 6. Maximum notifications to keep: the oldest are deleted beyond this. The default is 5000.
 7. Never automatically delete important notifications.
@@ -144,6 +146,7 @@ In your NVDA settings folder, in a folder named notificationsController:
 
 1. rules.json: your rules. If it cannot be read, it is renamed rules.json.damaged and the add-on starts with no rules.
 2. history.jsonl: the history, one notification per line, when history is kept after restarts.
+3. settings.json: the history storage settings, shared by all configuration profiles.
 
 ## Known limits
 

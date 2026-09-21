@@ -29,6 +29,8 @@ indent-style = "tab"
 max-complexity = 15
 
 [tool.ruff.lint]
+# Module level imports not at the top, which recent Ruff versions no longer check by default.
+extend-select = ["E402"]
 ignore = [
 	# indentation contains tabs
 	"W191",

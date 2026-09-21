@@ -422,9 +422,7 @@ class HistoryDialog(wx.Dialog):
 
 		edited = editRule(self, self.controller, ruleFromRecord(record), isNew=True)
 		if edited:
-			addRule(self.controller, edited)
-			# Translators: Reported when a rule has been added.
-			ui.message(_("Rule added"))
+			addRule(self.controller, edited, parent=self)
 
 	def onSilenceSite(self, evt):
 		record = self.list.selectedRecord()
@@ -442,9 +440,7 @@ class HistoryDialog(wx.Dialog):
 			parent=self,
 		)
 		if result == ReturnCode.OK:
-			addRule(self.controller, rule)
-			# Translators: Reported when a rule has been added.
-			ui.message(_("Rule added"))
+			addRule(self.controller, rule, parent=self)
 
 	def onPin(self, evt):
 		record = self.list.selectedRecord()

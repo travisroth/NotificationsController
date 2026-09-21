@@ -343,7 +343,17 @@ class RuleEditorDialog(wx.Dialog):
 			ui.message(_("Regular expression error: {error}").format(error=compiled.error))
 			return
 		records = self.controller.history.records
-		matches = [r for r in reversed(records) if compiled.matches(r)]
+		try:
+			matches = [r for r in reversed(records) if compiled.matches(r)]
+		except TimeoutError:
+			# Translators: Reported when testing a rule whose regular expression is too slow to use.
+			message = _(
+				"The regular expression takes too long on some notifications. "
+				"Simplify it; a rule like this would be turned off.",
+			)
+			self.testList.Set([])
+			self._alert(message)
+			return
 		self.testList.Set([f"{r.text} ({r.appLabel or r.domain})" for r in matches[:500]])
 		# Translators: Reports how many history entries a rule matches.
 		ui.message(_("{count} of {total} notifications match").format(count=len(matches), total=len(records)))
@@ -424,9 +434,26 @@ def editRule(parent: wx.Window | None, controller: Controller, rule: Rule, isNew
 	return edited if result == wx.ID_OK else None
 
 
-def addRule(controller: Controller, rule: Rule, index: int = 0) -> None:
-	controller.rules.rules.insert(index, rule)
-	controller.saveRules()
+def reportSaveFailure(parent: wx.Window | None) -> None:
+	MessageDialog.alert(
+		# Translators: Shown when rules could not be saved. The rules in use are unchanged.
+		_("The rules could not be saved, so the change was not made. See the NVDA log for details."),
+		# Translators: The title of an error message.
+		_("Error"),
+		parent=parent,
+	)
+
+
+def addRule(controller: Controller, rule: Rule, index: int = 0, parent: wx.Window | None = None) -> bool:
+	"""Add a rule, save, and announce it. Reports the error and changes nothing when saving fails."""
+	rules = list(controller.rules.rules)
+	rules.insert(index, rule)
+	if not controller.commitRules(rules):
+		reportSaveFailure(parent)
+		return False
+	# Translators: Reported when a rule has been added.
+	ui.message(_("Rule added"))
+	return True
 
 
 def editNewRuleFromRecord(
@@ -437,8 +464,6 @@ def editNewRuleFromRecord(
 	"""Open the editor for a new rule, prefilled from a notification when one is given, and add it."""
 	rule = ruleFromRecord(record) if record else Rule(id=newRuleId())
 	edited = editRule(parent, controller, rule, isNew=True)
-	if edited:
-		addRule(controller, edited)
-		# Translators: Reported when a rule has been added.
-		ui.message(_("Rule added"))
-	return edited
+	if edited and addRule(controller, edited, parent=parent):
+		return edited
+	return None

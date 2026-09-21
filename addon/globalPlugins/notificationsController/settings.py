@@ -46,14 +46,12 @@ addonHandler.initTranslation()
 
 SECTION = "notificationsController"
 
+# Settings read for each notification. These follow NVDA's configuration profiles, so a profile can,
+# for example, turn on Do not disturb. Settings about how history is stored are global instead:
+# see storage.py.
 confspec = {
 	"enabled": "boolean(default=True)",
 	"logEnabled": "boolean(default=True)",
-	"persistHistory": "boolean(default=True)",
-	"retentionHours": "integer(default=24, min=0)",
-	"maxEntries": "integer(default=5000, min=100, max=100000)",
-	"keepImportant": "boolean(default=False)",
-	"dedupeMs": "integer(default=500, min=0, max=10000)",
 	"doNotDisturb": "boolean(default=False)",
 	"captureUIA": "boolean(default=True)",
 	"captureToasts": "boolean(default=True)",
@@ -83,6 +81,32 @@ def rulesPath() -> str:
 
 def historyPath() -> str:
 	return os.path.join(dataDir(), "history.jsonl")
+
+
+def storagePath() -> str:
+	return os.path.join(dataDir(), "settings.json")
+
+
+LEGACY_STORAGE_KEYS = ("persistHistory", "retentionHours", "maxEntries", "keepImportant", "dedupeMs")
+"""Storage settings that earlier versions kept in NVDA's configuration."""
+
+
+def legacyStorageValues() -> dict[str, object]:
+	"""Storage settings left in NVDA's configuration by an earlier version, for moving to storage.py.
+
+	They are no longer in the confspec, so NVDA returns them as saved text, such as "False".
+	"""
+	values: dict[str, object] = {}
+	try:
+		section = config.conf[SECTION]
+	except KeyError:
+		return values
+	for key in LEGACY_STORAGE_KEYS:
+		try:
+			values[key] = section[key]
+		except KeyError:
+			pass
+	return values
 
 
 def addonDir() -> str:

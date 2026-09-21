@@ -14,8 +14,19 @@ import json
 import os
 import re
 import uuid
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from typing import Any
+
+try:
+	# NVDA ships the regex package. Unlike re, it can stop a search that runs too long, so a badly written
+	# pattern (catastrophic backtracking, such as ^(a+)+b) cannot freeze NVDA's main thread.
+	import regex as _engine
+
+	HAS_TIMEOUT = True
+except ImportError:
+	# Only when running outside NVDA, such as in plain unit tests.
+	_engine = re
+	HAS_TIMEOUT = False
 
 from .models import (
 	MATCH_ANY,
@@ -33,7 +44,12 @@ from .models import (
 SCHEMA_VERSION = 1
 
 MAX_MATCH_TEXT = 4000
-"""Only this much of a notification's text is matched, so a huge live region cannot stall a regex."""
+"""Only this much of a notification's text is matched. A second safeguard behind REGEX_TIMEOUT."""
+
+REGEX_TIMEOUT = 0.1
+"""Seconds a regular expression may spend on one notification before its rule is turned off."""
+
+REGEX_TIMEOUT_ERROR = "timed out"
 
 _whitespace = re.compile(r"\s+")
 
@@ -51,11 +67,30 @@ def newRuleId() -> str:
 	return uuid.uuid4().hex
 
 
-def validateRegex(pattern: str, caseSensitive: bool = False) -> str | None:
-	"""Return an error message if the pattern does not compile, otherwise None."""
+def compileRegex(pattern: str, caseSensitive: bool = False):
+	"""Compile a rule's regular expression with the engine used for matching. Raises ValueError."""
 	try:
-		re.compile(pattern, 0 if caseSensitive else re.IGNORECASE)
-	except re.error as e:
+		return _engine.compile(pattern, 0 if caseSensitive else _engine.IGNORECASE)
+	except _engine.error as e:
+		raise ValueError(str(e)) from e
+
+
+def regexSearch(compiled, text: str) -> bool:
+	"""Search with a time limit. Raises TimeoutError when the search takes too long."""
+	if HAS_TIMEOUT:
+		return bool(compiled.search(text, timeout=REGEX_TIMEOUT))
+	return bool(compiled.search(text))
+
+
+def validateRegex(pattern: str, caseSensitive: bool = False) -> str | None:
+	"""Return an error message if the pattern does not compile, otherwise None.
+
+	This only checks the syntax. A pattern can compile and still be too slow; that is caught while
+	matching, by REGEX_TIMEOUT.
+	"""
+	try:
+		compileRegex(pattern, caseSensitive)
+	except ValueError as e:
 		return str(e)
 	return None
 
@@ -75,20 +110,21 @@ class CompiledRule:
 
 	def __init__(self, rule: Rule):
 		self.rule = rule
-		self.regex: re.Pattern[str] | None = None
+		self.regex: Any = None
 		self.error: str | None = None
 		self.pattern = rule.pattern if rule.matchType == MATCH_REGEX else normalizeText(rule.pattern)
 		if not rule.caseSensitive:
 			self.pattern = self.pattern.casefold()
 		if rule.matchType == MATCH_REGEX:
 			try:
-				self.regex = re.compile(rule.pattern, 0 if rule.caseSensitive else re.IGNORECASE)
-			except re.error as e:
+				self.regex = compileRegex(rule.pattern, rule.caseSensitive)
+			except ValueError as e:
 				self.error = str(e)
 		self.app = rule.app.strip().casefold()
 		self.urlPrefix = rule.urlPrefix.strip().casefold()
 
 	def matches(self, record: NotificationRecord) -> bool:
+		"""Whether the rule matches. Raises TimeoutError when its regular expression takes too long."""
 		rule = self.rule
 		if not rule.enabled or self.error:
 			return False
@@ -112,7 +148,7 @@ class CompiledRule:
 			return True
 		text = text[:MAX_MATCH_TEXT]
 		if matchType == MATCH_REGEX:
-			return bool(self.regex and self.regex.search(normalizeText(text)))
+			return bool(self.regex) and regexSearch(self.regex, normalizeText(text))
 		text = normalizeText(text)
 		if not self.rule.caseSensitive:
 			text = text.casefold()
@@ -131,6 +167,8 @@ class RuleSet:
 	def __init__(self, rules: Iterable[Rule] = ()):
 		self._rules: list[Rule] = list(rules)
 		self._compiled: list[CompiledRule] = []
+		self.onRuleError: Callable[[Rule, str], None] | None = None
+		"""Called when a rule is turned off while matching, such as a regular expression timing out."""
 		self.recompile()
 
 	@property
@@ -147,8 +185,15 @@ class RuleSet:
 
 	def match(self, record: NotificationRecord) -> Rule | None:
 		for compiled in self._compiled:
-			if compiled.matches(record):
-				return compiled.rule
+			try:
+				if compiled.matches(record):
+					return compiled.rule
+			except TimeoutError:
+				# Turn the rule off until the rules are next changed or reloaded, so one slow pattern
+				# costs one timeout, not one per notification, and carry on with the next rule.
+				compiled.error = REGEX_TIMEOUT_ERROR
+				if self.onRuleError:
+					self.onRuleError(compiled.rule, REGEX_TIMEOUT_ERROR)
 		return None
 
 	def get(self, ruleId: str) -> Rule | None:
@@ -158,7 +203,7 @@ class RuleSet:
 		return None
 
 	def errors(self) -> dict[str, str]:
-		"""Rules whose regular expression does not compile, by rule id."""
+		"""Rules whose regular expression does not compile or timed out, by rule id."""
 		return {c.rule.id: c.error for c in self._compiled if c.error}
 
 	# Persistence
