@@ -211,25 +211,34 @@ class History:
 
 		When the new file already holds history, its entries are merged with the ones in memory rather
 		than overwritten. The next flush writes every record to the new file.
+
+		All or nothing: the file is read before anything changes, so if reading it fails, the error is
+		raised and history stays exactly as it was, still saved where it was before (or memory only).
+		A later flush can then never append to, or overwrite, a file that was not merged.
+		:raises OSError: The existing file could not be read.
 		"""
 		if path == self.path:
 			return
-		self.path = path
 		if not path:
+			self.path = None
 			self._pending = []
 			self._dirty = False
 			return
 		fileRecords, errors = self._readFile(path)
+		# Merge into new structures; nothing is committed until the merge is complete.
+		taken = {r.id for r in self._records}
+		nextId = max([self._nextId - 1, *taken, *(r.id for r in fileRecords)]) + 1
+		for record in fileRecords:
+			# These objects are new, read from the file, so they can be changed before committing.
+			if record.id <= 0 or record.id in taken:
+				record.id = nextId
+				nextId += 1
+			taken.add(record.id)
+		merged = sorted([*fileRecords, *self._records], key=lambda r: (r.timestamp, r.id))
+		self.path = path
+		self._records = merged
+		self._nextId = nextId
 		self.loadErrors = errors
-		if fileRecords:
-			taken = {r.id for r in self._records}
-			self._nextId = max([self._nextId - 1, *taken, *(r.id for r in fileRecords)]) + 1
-			for record in fileRecords:
-				if record.id <= 0 or record.id in taken:
-					record.id = self._nextId
-					self._nextId += 1
-				taken.add(record.id)
-			self._records = sorted([*fileRecords, *self._records], key=lambda r: (r.timestamp, r.id))
 		self._pending = []
 		self._dirty = True
 		self.prune()

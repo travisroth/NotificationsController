@@ -55,7 +55,8 @@ globalVars.appArgs.configPath = _tempDir.name
 
 import notificationsController as nc
 from notificationsController import capture, output, settings
-from notificationsController.controller import Controller
+from notificationsController.controller import Controller, StorageProblem
+from notificationsController.settingsPanel import storageProblemMessages
 from notificationsController.models import (
 	OUTPUT_NONE,
 	OUTPUT_SPEECH,
@@ -632,6 +633,8 @@ class _ImmediateCallAfter:
 
 
 class TestSecondReview(unittest.TestCase):
+	"""Storage and rule problems are reported, and storage fails safe."""
+
 	@classmethod
 	def setUpClass(cls):
 		cls.app = wx.App.Get() or wx.App()
@@ -674,7 +677,8 @@ class TestSecondReview(unittest.TestCase):
 		controller.load()
 		self.assertFalse(controller.storage.persistHistory)
 		self.assertIsNone(controller.history.path)
-		self.assertTrue(controller.storageProblem)
+		self.assertEqual(controller.storageProblems, {StorageProblem.SETTINGS_UNREADABLE})
+		self.assertIn("memory only", storageProblemMessages(controller)[0])
 		self.assertTrue(os.path.isfile(path + ".damaged"))
 		# The damaged file stays, so the next start also fails closed rather than using defaults.
 		self.assertTrue(os.path.isfile(path))
@@ -698,8 +702,104 @@ class TestSecondReview(unittest.TestCase):
 			panel.Destroy()
 		self.assertIsNone(controller.history.path)
 		self.assertEqual(len(self.alerts), 1)
-		self.assertIn("could not be saved", self.alerts[0])
-		self.assertTrue(controller.storageProblem)
+		self.assertIn("memory only now", self.alerts[0])
+		self.assertIn("may be saved to disk again", self.alerts[0])
+		self.assertEqual(controller.storageProblems, {StorageProblem.SETTINGS_NOT_SAVED})
+
+	def memoryOnlyController(self):
+		from notificationsController.storage import StorageSettings
+
+		controller = Controller()
+		controller.load()
+		controller.setStorage(StorageSettings(persistHistory=False))
+		controller.history.clear()
+		return controller
+
+	def test_failedSaveWhileTurningSavingOnSaysItIsSavingNow(self):
+		from notificationsController.storage import StorageSettings
+
+		controller = self.memoryOnlyController()
+		self.unwritableStoragePath()
+		problems = controller.setStorage(StorageSettings(persistHistory=True))
+		self.assertEqual(problems, {StorageProblem.SETTINGS_NOT_SAVED})
+		self.assertTrue(controller.history.path)
+		message = storageProblemMessages(controller)[0]
+		self.assertIn("being saved to disk now", message)
+		self.assertIn("may change back", message)
+
+	def test_failedDeleteIsReportedWithThePath(self):
+		from notificationsController.history import History
+		from notificationsController.storage import StorageSettings
+
+		controller = Controller()
+		controller.load()
+		controller.setStorage(StorageSettings(persistHistory=True))
+		saved = History.__dict__["deleteFile"]
+
+		def fail(path):
+			raise OSError("in use")
+
+		History.deleteFile = staticmethod(fail)
+		try:
+			problems = controller.setStorage(StorageSettings(persistHistory=False))
+		finally:
+			History.deleteFile = saved
+		self.assertEqual(problems, {StorageProblem.HISTORY_NOT_DELETED})
+		# Saving still stopped.
+		self.assertIsNone(controller.history.path)
+		message = storageProblemMessages(controller)[0]
+		self.assertIn("could not be deleted", message)
+		self.assertIn(settings.historyPath(), message)
+		# Saving the settings again tries the delete again, and clears the warning when it works.
+		self.assertEqual(controller.setStorage(StorageSettings(persistHistory=False)), set())
+
+	def test_unreadableHistoryWhenTurningSavingOnLeavesFileAlone(self):
+		from notificationsController.history import History
+		from notificationsController.storage import StorageSettings
+
+		controller = self.memoryOnlyController()
+		os.makedirs(settings.dataDir(), exist_ok=True)
+		path = settings.historyPath()
+		with open(path, "w", encoding="utf-8") as f:
+			f.write('{"timestamp": 1.0, "source": "uia", "text": "keep me", "id": 1}\n')
+		controller.process(rec("memory"), lambda: None)
+		saved = History.__dict__["_readFile"]
+
+		def fail(path):
+			raise OSError("locked")
+
+		History._readFile = staticmethod(fail)
+		try:
+			problems = controller.setStorage(StorageSettings(persistHistory=True))
+		finally:
+			History._readFile = saved
+		self.assertEqual(problems, {StorageProblem.HISTORY_UNREADABLE})
+		self.assertIsNone(controller.history.path)
+		self.assertIn("has not been changed", storageProblemMessages(controller)[0])
+		controller.history.clear()
+		controller.flush()
+		with open(path, encoding="utf-8") as f:
+			self.assertIn("keep me", f.read())
+		os.remove(path)
+
+	def test_unreadableHistoryAtStartIsNotWritten(self):
+		from notificationsController.history import History
+		from notificationsController.storage import StorageSettings
+
+		Controller().setStorage(StorageSettings(persistHistory=True))
+		saved = History.__dict__["_readFile"]
+
+		def fail(path):
+			raise OSError("locked")
+
+		History._readFile = staticmethod(fail)
+		try:
+			controller = Controller()
+			controller.load()
+		finally:
+			History._readFile = saved
+		self.assertIsNone(controller.history.path)
+		self.assertIn(StorageProblem.HISTORY_UNREADABLE, controller.storageProblems)
 
 	def test_timedOutRuleRefreshesOpenRulesWindow(self):
 		from notificationsController import rules as rulesModule

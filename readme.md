@@ -146,7 +146,7 @@ In your NVDA settings folder, in a folder named notificationsController:
 
 1. rules.json: your rules. If it cannot be read, it is renamed rules.json.damaged and the add-on starts with no rules.
 2. history.jsonl: the history, one notification per line, when history is kept after restarts.
-3. settings.json: the history storage settings, shared by all configuration profiles. If it cannot be read, the add-on does not save history to disk until you save its settings again: the file might have said not to. A damaged file is copied to settings.json.damaged, the settings show a warning, and if saving the settings fails you are told, including when turning off saving history will not last past a restart.
+3. settings.json: the history storage settings, shared by all configuration profiles. If it cannot be read, the add-on does not save history to disk until you save its settings again: the file might have said not to. A damaged file is copied to settings.json.damaged. The settings show a warning for anything that went wrong, saying what is happening now and what may change: settings that could not be read or saved, a history file that could not be read (history is then kept in memory only and the file is left untouched), or a history file that could not be deleted when you turned saving off (its location is given, so you can delete it yourself). Saving the settings again tries once more.
 
 ## Known limits
 

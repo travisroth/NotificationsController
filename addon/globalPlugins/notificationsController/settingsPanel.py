@@ -13,6 +13,7 @@ from gui.message import MessageDialog, ReturnCode
 from gui.settingsDialogs import SettingsPanel
 
 from . import settings
+from .controller import StorageProblem
 from .storage import MAX_DEDUPE_MS, MAX_ENTRIES, MIN_ENTRIES, StorageSettings
 
 addonHandler.initTranslation()
@@ -51,18 +52,10 @@ class NotificationsControllerPanel(SettingsPanel):
 			wx.CheckBox(historyBox, label=_("&Log notifications to history")),
 		)
 		self.logCheck.SetValue(conf["logEnabled"])
-		if self.controller and self.controller.storageProblem:
-			historyGroup.addItem(
-				wx.StaticText(
-					historyBox,
-					# Translators: Shown in the add-on's settings when its storage settings file could not be
-					# read or saved. {error} is the technical reason.
-					label=_(
-						"Warning: the history storage settings could not be read or saved ({error}). "
-						"Until they are saved again, history is not kept on disk. Press OK to save them.",
-					).format(error=self.controller.storageProblem),
-				),
-			)
+		for message in storageProblemMessages(self.controller):
+			# Translators: Put before a warning about storing history in the add-on's settings.
+			label = _("Warning: {message}").format(message=message)
+			historyGroup.addItem(wx.StaticText(historyBox, label=label))
 		historyGroup.addItem(
 			wx.StaticText(
 				historyBox,
@@ -171,21 +164,60 @@ class NotificationsControllerPanel(SettingsPanel):
 			keepImportant=self.keepImportantCheck.GetValue(),
 			dedupeMs=self.dedupeSpin.GetValue(),
 		)
-		if self.controller.setStorage(storage):
+		if not self.controller.setStorage(storage):
 			return
-		if storage.persistHistory:
-			# Translators: Shown when the add-on's history storage settings could not be saved.
-			message = _(
-				"The history storage settings could not be saved. They apply until NVDA restarts, "
-				"and then the previous settings return. See the NVDA log for details.",
-			)
-		else:
-			# Translators: Shown when turning off saving history could not be saved as a setting.
-			message = _(
-				"History is no longer being saved to disk, but this setting could not be saved. "
-				"After NVDA restarts, history may be saved to disk again. "
-				"See the NVDA log for details.",
-			)
+		message = "\n\n".join(storageProblemMessages(self.controller))
 		# The settings dialog is closing; show the message once it has gone.
-		# Translators: The title of an error message.
-		wx.CallAfter(MessageDialog.alert, message, _("Error"))
+		# Translators: The title of a message about a problem storing notification history.
+		wx.CallAfter(MessageDialog.alert, message, _("Notification history"))
+
+
+def storageProblemMessages(controller) -> list[str]:
+	"""Explain each storage problem as things stand now: what is happening, and what may change later."""
+	if controller is None:
+		return []
+	historyPath = settings.historyPath()
+	savingNow = bool(controller.history.path)
+	messages: list[str] = []
+	for problem in sorted(controller.storageProblems, key=lambda p: p.value):
+		if problem is StorageProblem.SETTINGS_UNREADABLE:
+			messages.append(
+				# Translators: Explains a problem storing notification history.
+				_(
+					"The history storage settings could not be read, so history is kept in memory only "
+					"until you save these settings.",
+				),
+			)
+		elif problem is StorageProblem.SETTINGS_NOT_SAVED and savingNow:
+			messages.append(
+				# Translators: Explains a problem storing notification history.
+				_(
+					"History is being saved to disk now, but this choice could not be saved, "
+					"so it may change back after NVDA restarts.",
+				),
+			)
+		elif problem is StorageProblem.SETTINGS_NOT_SAVED:
+			messages.append(
+				# Translators: Explains a problem storing notification history.
+				_(
+					"History is kept in memory only now, but this choice could not be saved, "
+					"so after NVDA restarts history may be saved to disk again.",
+				),
+			)
+		elif problem is StorageProblem.HISTORY_UNREADABLE:
+			messages.append(
+				# Translators: Explains a problem storing notification history. {path} is a file.
+				_(
+					"The saved history file could not be read, so history is kept in memory only and the "
+					"file has not been changed. Save these settings to try again. File: {path}",
+				).format(path=historyPath),
+			)
+		elif problem is StorageProblem.HISTORY_NOT_DELETED:
+			messages.append(
+				# Translators: Explains a problem storing notification history. {path} is a file.
+				_(
+					"History is no longer being saved, but the existing history file could not be deleted, "
+					"so earlier notifications are still on disk. You can delete it yourself: {path}",
+				).format(path=historyPath),
+			)
+	return messages

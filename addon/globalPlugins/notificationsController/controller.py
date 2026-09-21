@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 import shutil
 from collections.abc import Callable
+from enum import Enum
 
 import config
 import wx
@@ -37,13 +38,26 @@ class _Timer(wx.Timer):
 			log.error("NotificationsController: timer callback failed", exc_info=True)
 
 
+class StorageProblem(Enum):
+	"""Something that went wrong storing history, which the settings panel explains."""
+
+	SETTINGS_UNREADABLE = "settingsUnreadable"
+	"""settings.json could not be read, so history is kept in memory only."""
+	SETTINGS_NOT_SAVED = "settingsNotSaved"
+	"""The storage settings apply now but could not be saved, so they may change back after a restart."""
+	HISTORY_UNREADABLE = "historyUnreadable"
+	"""Saving is on, but the history file could not be read, so history is kept in memory only."""
+	HISTORY_NOT_DELETED = "historyNotDeleted"
+	"""Saving was turned off, but the history file could not be deleted."""
+
+
 class Controller:
 	def __init__(self):
 		self.rules = RuleSet()
 		self.rulesLoadError: str | None = None
 		self.storage = StorageSettings()
-		self.storageProblem: str | None = None
-		"""Why the saved storage settings could not be read or saved, for the settings panel to show."""
+		self.storageProblems: set[StorageProblem] = set()
+		"""What went wrong storing history, for the settings panel to explain."""
 		self.history = History()
 		self.deduper = Deduper()
 		self._flushTimer: _Timer | None = None
@@ -72,7 +86,11 @@ class Controller:
 					f"NotificationsController: skipped {self.history.loadErrors} damaged history lines"
 				)
 		except OSError:
-			log.error("NotificationsController: could not read history", exc_info=True)
+			# Keep history in memory only: writing to a file that could not be read could append
+			# clashing entries to it, or replace it with only this session's.
+			log.error("NotificationsController: could not read history; not saving it", exc_info=True)
+			self.history.path = None
+			self.storageProblems.add(StorageProblem.HISTORY_UNREADABLE)
 
 	def stop(self) -> None:
 		for timer in (self._flushTimer, self._pruneTimer):
@@ -104,7 +122,7 @@ class Controller:
 				"until the add-on's settings are saved again",
 				exc_info=True,
 			)
-			self.storageProblem = str(e)
+			self.storageProblems.add(StorageProblem.SETTINGS_UNREADABLE)
 			if isinstance(e, ValueError):
 				try:
 					shutil.copyfile(path, path + ".damaged")
@@ -128,7 +146,7 @@ class Controller:
 		self.deduper.windowSeconds = self.storage.dedupeMs / 1000
 		self.history.prune()
 
-	def setStorage(self, storage: StorageSettings) -> bool:
+	def setStorage(self, storage: StorageSettings) -> set[StorageProblem]:
 		"""Apply storage settings the user changed, and save them.
 
 		Turning off saving is the one place the history file is deleted, because that is an explicit
@@ -137,31 +155,36 @@ class Controller:
 
 		The settings apply to this session even when they cannot be saved, so turning off saving always
 		stops writing straight away.
-		:return: Whether the settings were saved, and so will still apply after NVDA restarts.
+		:return: What went wrong; empty when everything was saved as asked. Also kept in storageProblems.
 		"""
 		old = self.storage
 		self.storage = storage
-		saved = True
+		problems: set[StorageProblem] = set()
 		try:
 			storage.save(settings.storagePath())
-			self.storageProblem = None
-		except OSError as e:
+		except OSError:
 			log.error("NotificationsController: could not save storage settings", exc_info=True)
-			self.storageProblem = str(e)
-			saved = False
-		if old.persistHistory and not storage.persistHistory:
+			problems.add(StorageProblem.SETTINGS_NOT_SAVED)
+		if not storage.persistHistory:
 			self.history.setPath(None)
-			try:
-				History.deleteFile(settings.historyPath())
-			except OSError:
-				log.error("NotificationsController: could not delete history file", exc_info=True)
-		elif storage.persistHistory and not old.persistHistory:
+			# Delete when saving is being turned off, and try again if an earlier delete failed.
+			if old.persistHistory or StorageProblem.HISTORY_NOT_DELETED in self.storageProblems:
+				try:
+					History.deleteFile(settings.historyPath())
+				except OSError:
+					log.error("NotificationsController: could not delete history file", exc_info=True)
+					problems.add(StorageProblem.HISTORY_NOT_DELETED)
+		elif self.history.path is None:
+			# Turning saving on, or trying again after the file could not be read.
 			try:
 				self.history.setPath(settings.historyPath())
 			except OSError:
+				# setPath changed nothing, so history is still memory only.
 				log.error("NotificationsController: could not read history file", exc_info=True)
+				problems.add(StorageProblem.HISTORY_UNREADABLE)
 		self._applyStorageLimits()
-		return saved
+		self.storageProblems = problems
+		return problems
 
 	# Rules
 

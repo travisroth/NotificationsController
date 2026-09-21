@@ -230,6 +230,44 @@ class TestPersistence(unittest.TestCase):
 		memoryOnly.flush()
 		self.assertEqual(len(self.lines()), 3)
 
+	def test_failedReadWhenTurningSavingOnChangesNothing(self):
+		existing = self.make()
+		existing.add(rec("on disk"))
+		existing.flush()
+		before = self.lines()
+		h = History(None, clock=self.clock)
+		kept = h.add(rec("memory only"))
+
+		def fail(path):
+			raise OSError("locked")
+
+		h._readFile = fail
+		with self.assertRaises(OSError):
+			h.setPath(self.path)
+		self.assertIsNone(h.path)
+		self.assertEqual(h.records, [kept])
+		# Nothing that happens afterwards can touch the file it failed to read.
+		h.add(rec("later"))
+		h.delete([kept.id])
+		h.flush()
+		self.assertEqual(self.lines(), before)
+		self.assertFalse(h.needsFlush)
+
+	def test_failedReadKeepsPreviousFile(self):
+		h = self.make()
+		h.add(rec("a"))
+		h.flush()
+		other = os.path.join(self._dir.name, "other.jsonl")
+
+		def fail(path):
+			raise OSError("locked")
+
+		h._readFile = fail
+		with self.assertRaises(OSError):
+			h.setPath(other)
+		self.assertEqual(h.path, self.path)
+		self.assertFalse(os.path.exists(other))
+
 	def test_turningSavingOffKeepsFileAndMemory(self):
 		h = self.make()
 		h.add(rec("a"))
