@@ -61,6 +61,7 @@ _MAX_PARENT_WALK = 15
 
 
 def _safe(getter: Callable[[], object], default: object = "") -> object:
+	"""turns fragile property access into “best effort” access, which is essential in an add-on dealing with constantly changing accessibility objects."""
 	try:
 		value = getter()
 	except Exception:

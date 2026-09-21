@@ -1,5 +1,5 @@
 # NotificationsController: __init__.py
-# Copyright (C) 2026 Travis Roth
+# Copyright (C) 2026 Travis Roth <travis@travisroth.com>
 # This file is covered by the GNU General Public License version 2.
 
 """NotificationsController: control and review the notifications apps and web pages send to NVDA.
