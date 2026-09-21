@@ -62,15 +62,32 @@ class StorageSettings:
 		return settings
 
 	@classmethod
+	def failClosed(cls) -> StorageSettings:
+		"""Settings to use when the saved ones cannot be read: nothing is written to disk.
+
+		The saved file might have said not to keep notifications on disk, so the defaults, which do,
+		would be the wrong guess.
+		"""
+		return cls(persistHistory=False)
+
+	@classmethod
 	def load(cls, path: str) -> StorageSettings | None:
-		"""Read settings, or None when there is no file yet. A damaged file gives the defaults."""
-		if not os.path.isfile(path):
+		"""Read settings, or None when there is no file yet.
+
+		:raises ValueError: The file exists but is damaged.
+		:raises OSError: The file exists but cannot be read.
+		"""
+		if not os.path.exists(path):
 			return None
-		try:
-			with open(path, encoding="utf-8") as f:
-				return cls.fromDict(json.load(f))
-		except (OSError, ValueError):
-			return cls()
+		with open(path, encoding="utf-8") as f:
+			data = json.load(f)
+		if not isinstance(data, dict):
+			raise ValueError("Storage settings are not a JSON object")
+		settings = cls.fromDict(data)
+		if _coerce(data.get("persistHistory"), bool) is None:
+			# Missing or unreadable: do not guess that notifications may be kept on disk.
+			settings.persistHistory = False
+		return settings
 
 	def save(self, path: str) -> None:
 		writeJsonAtomic(path, self.toDict())

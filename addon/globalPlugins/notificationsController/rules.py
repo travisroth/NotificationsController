@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import time
 import uuid
 from collections.abc import Callable, Iterable
 from typing import Any
@@ -47,7 +48,14 @@ MAX_MATCH_TEXT = 4000
 """Only this much of a notification's text is matched. A second safeguard behind REGEX_TIMEOUT."""
 
 REGEX_TIMEOUT = 0.1
-"""Seconds a regular expression may spend on one notification before its rule is turned off."""
+"""Seconds one regular expression may spend on one notification before its rule is turned off."""
+
+REGEX_BUDGET = 0.15
+"""Seconds all regular expressions together may spend on one notification.
+
+Without a total, many slow rules would each use their own REGEX_TIMEOUT, one after another. When the
+budget runs out, or any search times out, matching stops and the notification is left to NVDA, which is
+the safest outcome."""
 
 REGEX_TIMEOUT_ERROR = "timed out"
 
@@ -75,10 +83,10 @@ def compileRegex(pattern: str, caseSensitive: bool = False):
 		raise ValueError(str(e)) from e
 
 
-def regexSearch(compiled, text: str) -> bool:
+def regexSearch(compiled, text: str, timeout: float = REGEX_TIMEOUT) -> bool:
 	"""Search with a time limit. Raises TimeoutError when the search takes too long."""
 	if HAS_TIMEOUT:
-		return bool(compiled.search(text, timeout=REGEX_TIMEOUT))
+		return bool(compiled.search(text, timeout=timeout))
 	return bool(compiled.search(text))
 
 
@@ -123,8 +131,12 @@ class CompiledRule:
 		self.app = rule.app.strip().casefold()
 		self.urlPrefix = rule.urlPrefix.strip().casefold()
 
-	def matches(self, record: NotificationRecord) -> bool:
-		"""Whether the rule matches. Raises TimeoutError when its regular expression takes too long."""
+	def matches(self, record: NotificationRecord, timeout: float = REGEX_TIMEOUT) -> bool:
+		"""Whether the rule matches.
+
+		:param timeout: The most time its regular expression may take.
+		:raises TimeoutError: When the regular expression takes longer.
+		"""
 		rule = self.rule
 		if not rule.enabled or self.error:
 			return False
@@ -140,15 +152,15 @@ class CompiledRule:
 			return False
 		if rule.politeness != POLITENESS_ANY and rule.politeness != record.politeness:
 			return False
-		return self.matchesText(record.text)
+		return self.matchesText(record.text, timeout)
 
-	def matchesText(self, text: str) -> bool:
+	def matchesText(self, text: str, timeout: float = REGEX_TIMEOUT) -> bool:
 		matchType = self.rule.matchType
 		if matchType == MATCH_ANY:
 			return True
 		text = text[:MAX_MATCH_TEXT]
 		if matchType == MATCH_REGEX:
-			return bool(self.regex) and regexSearch(self.regex, normalizeText(text))
+			return bool(self.regex) and regexSearch(self.regex, normalizeText(text), timeout)
 		text = normalizeText(text)
 		if not self.rule.caseSensitive:
 			text = text.casefold()
@@ -184,16 +196,30 @@ class RuleSet:
 		self.recompile()
 
 	def match(self, record: NotificationRecord) -> Rule | None:
+		"""The first enabled rule that matches, or None.
+
+		Regular expressions share REGEX_BUDGET per notification. When a search times out, or the budget
+		is used up, matching stops and None is returned, so NVDA handles the notification as usual. A rule
+		whose search used its whole REGEX_TIMEOUT is turned off until the rules change, so it costs one
+		timeout, not one per notification. A search cut short only by the budget turns nothing off.
+		"""
+		deadline = time.monotonic() + REGEX_BUDGET
 		for compiled in self._compiled:
+			timeout = REGEX_TIMEOUT
+			if compiled.regex is not None:
+				remaining = deadline - time.monotonic()
+				if remaining <= 0:
+					return None
+				timeout = min(REGEX_TIMEOUT, remaining)
 			try:
-				if compiled.matches(record):
+				if compiled.matches(record, timeout):
 					return compiled.rule
 			except TimeoutError:
-				# Turn the rule off until the rules are next changed or reloaded, so one slow pattern
-				# costs one timeout, not one per notification, and carry on with the next rule.
-				compiled.error = REGEX_TIMEOUT_ERROR
-				if self.onRuleError:
-					self.onRuleError(compiled.rule, REGEX_TIMEOUT_ERROR)
+				if timeout >= REGEX_TIMEOUT:
+					compiled.error = REGEX_TIMEOUT_ERROR
+					if self.onRuleError:
+						self.onRuleError(compiled.rule, REGEX_TIMEOUT_ERROR)
+				return None
 		return None
 
 	def get(self, ruleId: str) -> Rule | None:

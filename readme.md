@@ -75,7 +75,7 @@ Every field you fill in must match. Empty fields match anything.
 	1. Starts with, the default, and the most common choice.
 	2. Contains.
 	3. Is exactly.
-	4. Regular expression: a Python regular expression, searched anywhere in the text. A pattern that takes too long on a notification (more than a tenth of a second) turns its rule off until the rules change, so a slow pattern cannot freeze NVDA. The rule is marked with an error in the rules list, and the NVDA log says which rule it was. The Test against history button warns about slow patterns before you save.
+	4. Regular expression: a Python regular expression, searched anywhere in the text. A pattern that takes too long on a notification (more than a tenth of a second) turns its rule off until the rules change, and that notification is left to NVDA as usual, so a slow pattern cannot freeze NVDA. All regular expressions together get at most 0.15 seconds per notification, however many rules there are. The rule is marked with an error in the rules list, and the NVDA log says which rule it was. The Test against history button warns about slow patterns before you save.
 	5. Any text.
 
 	Matching ignores differences in spaces and line breaks, and ignores case unless Case sensitive is checked.
@@ -146,7 +146,7 @@ In your NVDA settings folder, in a folder named notificationsController:
 
 1. rules.json: your rules. If it cannot be read, it is renamed rules.json.damaged and the add-on starts with no rules.
 2. history.jsonl: the history, one notification per line, when history is kept after restarts.
-3. settings.json: the history storage settings, shared by all configuration profiles.
+3. settings.json: the history storage settings, shared by all configuration profiles. If it cannot be read, the add-on does not save history to disk until you save its settings again: the file might have said not to. A damaged file is copied to settings.json.damaged, the settings show a warning, and if saving the settings fails you are told, including when turning off saving history will not last past a restart.
 
 ## Known limits
 

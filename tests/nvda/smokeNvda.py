@@ -619,5 +619,115 @@ class TestStorageSettings(unittest.TestCase):
 		self.assertIn("Saved", texts)
 
 
+class _ImmediateCallAfter:
+	"""Run wx.CallAfter callbacks straight away, since these tests run no wx event loop."""
+
+	def __enter__(self):
+		self._saved = wx.CallAfter
+		wx.CallAfter = lambda func, *args, **kwargs: func(*args, **kwargs)
+		return self
+
+	def __exit__(self, *exc):
+		wx.CallAfter = self._saved
+
+
+class TestSecondReview(unittest.TestCase):
+	@classmethod
+	def setUpClass(cls):
+		cls.app = wx.App.Get() or wx.App()
+		cls.frame = wx.Frame(None)
+
+	@classmethod
+	def tearDownClass(cls):
+		cls.frame.Destroy()
+
+	def setUp(self):
+		from gui.message import MessageDialog
+
+		self.alerts = []
+		self._savedAlert = MessageDialog.alert
+		MessageDialog.alert = classmethod(lambda cls, message, *a, **k: self.alerts.append(message))
+		self._savedStoragePath = settings.storagePath
+
+	def tearDown(self):
+		from gui.message import MessageDialog
+
+		MessageDialog.alert = self._savedAlert
+		settings.storagePath = self._savedStoragePath
+		for name in ("settings.json", "settings.json.damaged"):
+			path = os.path.join(settings.dataDir(), name)
+			if os.path.isfile(path):
+				os.remove(path)
+
+	def unwritableStoragePath(self):
+		blocker = os.path.join(_tempDir.name, "storageBlocker")
+		with open(blocker, "w") as f:
+			f.write("x")
+		settings.storagePath = lambda: os.path.join(blocker, "settings.json")
+
+	def test_damagedStorageSettingsFailClosed(self):
+		os.makedirs(settings.dataDir(), exist_ok=True)
+		path = settings.storagePath()
+		with open(path, "w", encoding="utf-8") as f:
+			f.write('{"persistHistory": fal')
+		controller = Controller()
+		controller.load()
+		self.assertFalse(controller.storage.persistHistory)
+		self.assertIsNone(controller.history.path)
+		self.assertTrue(controller.storageProblem)
+		self.assertTrue(os.path.isfile(path + ".damaged"))
+		# The damaged file stays, so the next start also fails closed rather than using defaults.
+		self.assertTrue(os.path.isfile(path))
+
+	def test_failedStorageSaveTurnsSavingOffNowAndSaysSo(self):
+		from notificationsController.settingsPanel import NotificationsControllerPanel
+		from notificationsController.storage import StorageSettings
+
+		controller = Controller()
+		controller.load()
+		controller.setStorage(StorageSettings(persistHistory=True))
+		self.assertTrue(controller.history.path)
+		self.unwritableStoragePath()
+		NotificationsControllerPanel.controller = controller
+		panel = NotificationsControllerPanel(self.frame)
+		try:
+			panel.persistCheck.SetValue(False)
+			with _ImmediateCallAfter():
+				panel.onSave()
+		finally:
+			panel.Destroy()
+		self.assertIsNone(controller.history.path)
+		self.assertEqual(len(self.alerts), 1)
+		self.assertIn("could not be saved", self.alerts[0])
+		self.assertTrue(controller.storageProblem)
+
+	def test_timedOutRuleRefreshesOpenRulesWindow(self):
+		from notificationsController import rules as rulesModule
+		from notificationsController.rulesDialog import RulesDialog
+
+		controller = Controller()
+		controller.load()
+		self.assertTrue(
+			controller.commitRules([Rule(id="slow", name="Slow", matchType="regex", pattern="x")]),
+		)
+		dialog = RulesDialog(self.frame, controller)
+		RulesDialog._instance = dialog
+
+		def timeOut(compiled, text, timeout=rulesModule.REGEX_TIMEOUT):
+			raise TimeoutError
+
+		saved = rulesModule.regexSearch
+		rulesModule.regexSearch = timeOut
+		try:
+			passed = []
+			with _ImmediateCallAfter():
+				controller.process(rec("x"), lambda: passed.append(1))
+			self.assertEqual(passed, [1])
+			self.assertIn("timed out", dialog.list.GetItemText(0))
+		finally:
+			rulesModule.regexSearch = saved
+			dialog.Close()
+
+
 if __name__ == "__main__":
 	unittest.main(verbosity=2)

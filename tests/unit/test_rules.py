@@ -101,20 +101,54 @@ class TestRegexTimeout(unittest.TestCase):
 		)
 		rules.onRuleError = lambda r, error: errors.append((r.id, error))
 
-		def timeOut(compiled, text):
+		def timeOut(compiled, text, timeout=rulesModule.REGEX_TIMEOUT):
 			raise TimeoutError
 
 		original = rulesModule.regexSearch
 		rulesModule.regexSearch = timeOut
 		try:
-			self.assertEqual(rules.match(record("x")).id, "next")
+			# A timeout stops matching: NVDA handles this notification as usual.
+			self.assertIsNone(rules.match(record("x")))
 			self.assertEqual(errors, [("slow", rulesModule.REGEX_TIMEOUT_ERROR)])
-			# The slow rule stays off, so the next notification costs no second timeout.
+			# The slow rule stays off, so the next notification costs no timeout and reaches later rules.
 			self.assertEqual(rules.match(record("y")).id, "next")
 			self.assertEqual(len(errors), 1)
 			self.assertEqual(rules.errors(), {"slow": rulesModule.REGEX_TIMEOUT_ERROR})
 		finally:
 			rulesModule.regexSearch = original
+
+	def test_budgetCutsShortWithoutBlamingTheRule(self):
+		import time
+
+		errors = []
+		rules = RuleSet(
+			[
+				rule(id="fairlySlow", matchType=MATCH_REGEX, pattern="first"),
+				rule(id="second", matchType=MATCH_REGEX, pattern="second"),
+				rule(id="next", matchType=MATCH_ANY),
+			],
+		)
+		rules.onRuleError = lambda r, error: errors.append(r.id)
+		timeouts = []
+
+		def search(compiled, text, timeout=rulesModule.REGEX_TIMEOUT):
+			timeouts.append(timeout)
+			if compiled.pattern == "first":
+				# Just inside its own limit, but most of the notification's budget.
+				time.sleep(rulesModule.REGEX_TIMEOUT * 0.9)
+				return False
+			raise TimeoutError
+
+		original = rulesModule.regexSearch
+		rulesModule.regexSearch = search
+		try:
+			self.assertIsNone(rules.match(record("x")))
+		finally:
+			rulesModule.regexSearch = original
+		# The second rule only got what was left of the budget, so it is not turned off.
+		self.assertLess(timeouts[1], rulesModule.REGEX_TIMEOUT)
+		self.assertEqual(errors, [])
+		self.assertEqual(rules.errors(), {})
 
 	@unittest.skipUnless(rulesModule.HAS_TIMEOUT, "needs the regex package, which NVDA ships")
 	def test_catastrophicBacktrackingIsStopped(self):
@@ -128,9 +162,26 @@ class TestRegexTimeout(unittest.TestCase):
 			],
 		)
 		start = time.monotonic()
-		self.assertEqual(rules.match(record("a" * 60 + "b")).id, "next")
+		self.assertIsNone(rules.match(record("a" * 60 + "b")))
 		self.assertLess(time.monotonic() - start, 5)
 		self.assertIn("evil", rules.errors())
+		self.assertEqual(rules.match(record("a" * 60 + "b")).id, "next")
+
+	@unittest.skipUnless(rulesModule.HAS_TIMEOUT, "needs the regex package, which NVDA ships")
+	def test_manySlowRulesShareOneBudget(self):
+		import time
+
+		rules = RuleSet(
+			[rule(id=f"evil{i}", matchType=MATCH_REGEX, pattern=r"^(a|aa)+$") for i in range(20)]
+			+ [rule(id="next", matchType=MATCH_ANY)],
+		)
+		text = "a" * 60 + "b"
+		start = time.monotonic()
+		self.assertIsNone(rules.match(record(text)))
+		elapsed = time.monotonic() - start
+		self.assertLess(elapsed, 0.2)
+		# Only the rule that used its whole allowance is turned off; each notification costs one timeout.
+		self.assertEqual(list(rules.errors()), ["evil0"])
 
 
 class TestScoping(unittest.TestCase):

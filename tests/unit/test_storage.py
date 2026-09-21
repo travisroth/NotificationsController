@@ -21,12 +21,33 @@ class TestStorageSettings(unittest.TestCase):
 			original.save(path)
 			self.assertEqual(StorageSettings.load(path), original)
 
-	def test_damagedFileGivesDefaults(self):
+	def test_damagedFileRaises(self):
 		with tempfile.TemporaryDirectory() as d:
 			path = os.path.join(d, "settings.json")
-			with open(path, "w", encoding="utf-8") as f:
-				f.write("{nope")
-			self.assertEqual(StorageSettings.load(path), StorageSettings())
+			for content in ("{nope", "[1, 2]", "null"):
+				with open(path, "w", encoding="utf-8") as f:
+					f.write(content)
+				with self.assertRaises(ValueError):
+					StorageSettings.load(path)
+
+	def test_unreadableFileRaises(self):
+		with tempfile.TemporaryDirectory() as d:
+			# A folder where the file should be cannot be read as one.
+			path = os.path.join(d, "settings.json")
+			os.mkdir(path)
+			with self.assertRaises(OSError):
+				StorageSettings.load(path)
+
+	def test_savedFileWithoutUsablePersistSettingFailsClosed(self):
+		with tempfile.TemporaryDirectory() as d:
+			path = os.path.join(d, "settings.json")
+			for content in ('{"retentionHours": 72}', '{"persistHistory": "maybe"}'):
+				with open(path, "w", encoding="utf-8") as f:
+					f.write(content)
+				self.assertFalse(StorageSettings.load(path).persistHistory)
+
+	def test_failClosedDoesNotKeepHistoryOnDisk(self):
+		self.assertFalse(StorageSettings.failClosed().persistHistory)
 
 	def test_migratesNvdaConfigText(self):
 		settings = StorageSettings.fromDict(

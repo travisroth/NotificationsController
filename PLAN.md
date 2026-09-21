@@ -50,7 +50,7 @@ Findings from reading NVDA's source (2026.2 and 2026.3):
 5. Sleep mode: NVDA does not run events for objects in sleep mode, and the helper callback is checked against sleep mode by the add-on.
 6. Alerts are a fourth path. NVDA reports alert events on objects with the alert role, and UIA system alerts, and its event filter accepts events from topmost windows even when their app is in the background. Apps' own notification pop-ups can reach NVDA this way. Like NVDA, the add-on processes a pending focus event first and skips an alert the focus is inside.
 7. The live region hook can be chained with another add-on's hook. Uninstalling makes the hook inactive before restoring the pointer; an inactive callback forwards straight to the previous pointer, including reports already queued, and drops its reference to the plugin.
-8. Storage settings (saving history, retention, limits, duplicate window) are global, in settings.json, not in NVDA's configuration profiles, so a profile switch cannot start writing notifications to disk or delete history.
+8. Storage settings (saving history, retention, limits, duplicate window) are global, in settings.json, not in NVDA's configuration profiles, so a profile switch cannot start writing notifications to disk or delete history. They fail closed: a damaged or unreadable file means history stays in memory only, and a failed save is reported to the user.
 
 ## 3. Data model
 
@@ -94,7 +94,7 @@ Rule:
 11. log: yes or no (for truly noisy items the user may not want in history, such as a site that abuses live regions)
 12. Order position. Rules are evaluated top to bottom; the first enabled match wins. The UI supports move up and move down.
 
-"Starts with" is the default match type in the rule editor since it is expected to be the most common. Regular expressions are compiled once when rules load; patterns that fail to compile are rejected, with the error shown in the editor. Compiling only checks syntax, so it does not make a pattern safe: a valid pattern can still backtrack catastrophically. Matching therefore uses the regex package NVDA ships, with a 0.1 second timeout per search. A rule whose pattern times out is turned off until the rules change, and this is logged. Matching also looks at no more than the first 4000 characters, as a second safeguard.
+"Starts with" is the default match type in the rule editor since it is expected to be the most common. Regular expressions are compiled once when rules load; patterns that fail to compile are rejected, with the error shown in the editor. Compiling only checks syntax, so it does not make a pattern safe: a valid pattern can still backtrack catastrophically. Matching therefore uses the regex package NVDA ships, with a 0.1 second timeout per search and a 0.15 second budget for all regular expressions on one notification. When a search times out or the budget runs out, matching stops and the notification is left to NVDA. A rule whose search used its whole timeout is turned off until the rules change, which is logged and shown in the rules window. Matching also looks at no more than the first 4000 characters, as a second safeguard.
 
 ## 4. Behavior of an incoming notification
 

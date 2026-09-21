@@ -244,8 +244,9 @@ class RulesDialog(wx.Dialog):
 		return True
 
 	def onRulesChanged(self) -> None:
-		"""Rules changed elsewhere, such as a rule added from the history window."""
-		if self._saving:
+		"""Rules changed elsewhere, such as a rule added from the history window or a rule turned off
+		because its regular expression timed out."""
+		if self._saving or RulesDialog._instance is not self:
 			return
 		index = self.selectedIndex()
 		self.fill()

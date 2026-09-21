@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 from collections.abc import Callable
 
 import config
@@ -41,6 +42,8 @@ class Controller:
 		self.rules = RuleSet()
 		self.rulesLoadError: str | None = None
 		self.storage = StorageSettings()
+		self.storageProblem: str | None = None
+		"""Why the saved storage settings could not be read or saved, for the settings panel to show."""
 		self.history = History()
 		self.deduper = Deduper()
 		self._flushTimer: _Timer | None = None
@@ -89,7 +92,25 @@ class Controller:
 	# Storage settings
 
 	def _loadStorage(self) -> StorageSettings:
-		loaded = StorageSettings.load(settings.storagePath())
+		path = settings.storagePath()
+		try:
+			loaded = StorageSettings.load(path)
+		except (OSError, ValueError) as e:
+			# Fail closed: keep history in memory only until the user saves settings again.
+			# The file is left in place, so this happens on every start until then; a copy is kept for
+			# diagnosis if it is damaged.
+			log.error(
+				f"NotificationsController: could not read {path}; history is not saved to disk "
+				"until the add-on's settings are saved again",
+				exc_info=True,
+			)
+			self.storageProblem = str(e)
+			if isinstance(e, ValueError):
+				try:
+					shutil.copyfile(path, path + ".damaged")
+				except OSError:
+					pass
+			return StorageSettings.failClosed()
 		if loaded is not None:
 			return loaded
 		# First run of this version: carry over anything an earlier version kept in NVDA's configuration.
@@ -107,19 +128,27 @@ class Controller:
 		self.deduper.windowSeconds = self.storage.dedupeMs / 1000
 		self.history.prune()
 
-	def setStorage(self, storage: StorageSettings) -> None:
+	def setStorage(self, storage: StorageSettings) -> bool:
 		"""Apply storage settings the user changed, and save them.
 
 		Turning off saving is the one place the history file is deleted, because that is an explicit
 		request to stop keeping notifications on disk. Turning saving on merges any history already in
 		the file with what is in memory.
+
+		The settings apply to this session even when they cannot be saved, so turning off saving always
+		stops writing straight away.
+		:return: Whether the settings were saved, and so will still apply after NVDA restarts.
 		"""
 		old = self.storage
 		self.storage = storage
+		saved = True
 		try:
 			storage.save(settings.storagePath())
-		except OSError:
+			self.storageProblem = None
+		except OSError as e:
 			log.error("NotificationsController: could not save storage settings", exc_info=True)
+			self.storageProblem = str(e)
+			saved = False
 		if old.persistHistory and not storage.persistHistory:
 			self.history.setPath(None)
 			try:
@@ -132,6 +161,7 @@ class Controller:
 			except OSError:
 				log.error("NotificationsController: could not read history file", exc_info=True)
 		self._applyStorageLimits()
+		return saved
 
 	# Rules
 
@@ -139,12 +169,18 @@ class Controller:
 		rules.onRuleError = self._onRuleError
 		self.rules = rules
 
-	@staticmethod
-	def _onRuleError(rule: Rule, error: str) -> None:
+	def _onRuleError(self, rule: Rule, error: str) -> None:
 		log.warning(
 			f"NotificationsController: rule {rule.name!r} is turned off until the rules change: "
 			f"its regular expression {error}",
 		)
+		# Let an open rules window show the rule's error. Matching runs inside event handling, so the
+		# window is refreshed afterwards rather than from here.
+		wx.CallAfter(self._notifyRulesChanged)
+
+	def _notifyRulesChanged(self) -> None:
+		for callback in list(self.onRulesChanged):
+			callback()
 
 	def loadRules(self) -> None:
 		path = settings.rulesPath()
@@ -175,8 +211,7 @@ class Controller:
 			log.error("NotificationsController: could not save rules", exc_info=True)
 			return False
 		self._useRules(candidate)
-		for callback in list(self.onRulesChanged):
-			callback()
+		self._notifyRulesChanged()
 		return True
 
 	# Notifications

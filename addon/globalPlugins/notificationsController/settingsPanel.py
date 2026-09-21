@@ -51,6 +51,18 @@ class NotificationsControllerPanel(SettingsPanel):
 			wx.CheckBox(historyBox, label=_("&Log notifications to history")),
 		)
 		self.logCheck.SetValue(conf["logEnabled"])
+		if self.controller and self.controller.storageProblem:
+			historyGroup.addItem(
+				wx.StaticText(
+					historyBox,
+					# Translators: Shown in the add-on's settings when its storage settings file could not be
+					# read or saved. {error} is the technical reason.
+					label=_(
+						"Warning: the history storage settings could not be read or saved ({error}). "
+						"Until they are saved again, history is not kept on disk. Press OK to save them.",
+					).format(error=self.controller.storageProblem),
+				),
+			)
 		historyGroup.addItem(
 			wx.StaticText(
 				historyBox,
@@ -150,13 +162,30 @@ class NotificationsControllerPanel(SettingsPanel):
 		conf["captureToasts"] = self.toastCheck.GetValue()
 		conf["captureLiveRegions"] = self.liveRegionCheck.GetValue()
 		conf["captureAlerts"] = self.alertCheck.GetValue()
-		if self.controller:
-			self.controller.setStorage(
-				StorageSettings(
-					persistHistory=self.persistCheck.GetValue(),
-					retentionHours=settings.RETENTION_CHOICES[self.retentionChoice.GetSelection()],
-					maxEntries=self.maxEntriesSpin.GetValue(),
-					keepImportant=self.keepImportantCheck.GetValue(),
-					dedupeMs=self.dedupeSpin.GetValue(),
-				),
+		if not self.controller:
+			return
+		storage = StorageSettings(
+			persistHistory=self.persistCheck.GetValue(),
+			retentionHours=settings.RETENTION_CHOICES[self.retentionChoice.GetSelection()],
+			maxEntries=self.maxEntriesSpin.GetValue(),
+			keepImportant=self.keepImportantCheck.GetValue(),
+			dedupeMs=self.dedupeSpin.GetValue(),
+		)
+		if self.controller.setStorage(storage):
+			return
+		if storage.persistHistory:
+			# Translators: Shown when the add-on's history storage settings could not be saved.
+			message = _(
+				"The history storage settings could not be saved. They apply until NVDA restarts, "
+				"and then the previous settings return. See the NVDA log for details.",
 			)
+		else:
+			# Translators: Shown when turning off saving history could not be saved as a setting.
+			message = _(
+				"History is no longer being saved to disk, but this setting could not be saved. "
+				"After NVDA restarts, history may be saved to disk again. "
+				"See the NVDA log for details.",
+			)
+		# The settings dialog is closing; show the message once it has gone.
+		# Translators: The title of an error message.
+		wx.CallAfter(MessageDialog.alert, message, _("Error"))
