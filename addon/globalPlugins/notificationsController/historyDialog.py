@@ -23,7 +23,7 @@ from gui.message import MessageDialog, ReturnCode
 
 from . import settings
 from .controller import Controller
-from .models import ACTION_PART_TRIM, SOURCE_LIVE_REGION, SOURCES, NotificationRecord
+from .models import ACTION_PART_TRIM, SOURCE_LIVE_REGION, SOURCES, NotificationRecord, siteDomain
 from .ruleEditor import addRule, editRule, silenceSiteRule
 
 if TYPE_CHECKING:
@@ -438,19 +438,25 @@ class HistoryDialog(wx.Dialog):
 		record = self.list.selectedRecord()
 		if not record or not record.domain:
 			return
-		rule = silenceSiteRule(record.domain)
-		result = MessageDialog.confirm(
-			# Translators: Asks before adding a rule that silences a website's live regions.
+		site = siteDomain(record.domain)
+		result = MessageDialog.ask(
+			# Translators: Asks before adding a rule that silences a website's live regions, and whether they
+			# should still be logged to history.
 			_(
-				"Add a rule that silences all live regions on {site}? "
-				"They will still be logged to history. You can change the rule later in Rules.",
-			).format(site=rule.domain),
-			# Translators: The title of a confirmation.
+				"Add a rule that silences all live regions on {site}?\n\n"
+				"Should they still be logged to history, so you can review them later?",
+			).format(site=site),
+			# Translators: The title of a question.
 			_("Silence live regions"),
 			parent=self,
+			# Translators: A button: silence a website's live regions and keep logging them to history.
+			yesLabel=_("Silence and keep &logging"),
+			# Translators: A button: silence a website's live regions and stop logging them to history.
+			noLabel=_("Silence and do&n't log"),
 		)
-		if result == ReturnCode.OK:
-			addRule(self.controller, rule, parent=self)
+		if result == ReturnCode.CANCEL:
+			return
+		addRule(self.controller, silenceSiteRule(site, log=result == ReturnCode.YES), parent=self)
 
 	def onPin(self, evt):
 		record = self.list.selectedRecord()

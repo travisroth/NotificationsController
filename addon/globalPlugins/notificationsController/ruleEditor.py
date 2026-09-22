@@ -62,8 +62,11 @@ def ruleFromRecord(record: NotificationRecord) -> Rule:
 	return rule
 
 
-def silenceSiteRule(domain: str) -> Rule:
-	"""A rule that silences every live region on a website."""
+def silenceSiteRule(domain: str, log: bool = True) -> Rule:
+	"""A rule that silences every live region on a website.
+
+	:param log: Whether the silenced live regions are still logged to history.
+	"""
 	domain = siteDomain(domain)
 	return Rule(
 		id=newRuleId(),
@@ -74,6 +77,7 @@ def silenceSiteRule(domain: str) -> Rule:
 		matchType=MATCH_ANY,
 		action=Action(output=OUTPUT_NONE),
 		category=CATEGORY_SPAM,
+		log=log,
 	)
 
 

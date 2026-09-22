@@ -906,5 +906,71 @@ class TestRemoveMatchedText(unittest.TestCase):
 		self.assertIn("with sound", settings.actionLabel("speechBraille+trim+sound"))
 
 
+class TestSilenceSite(unittest.TestCase):
+	"""Silencing a site's live regions asks, in one step, whether to keep logging them."""
+
+	@classmethod
+	def setUpClass(cls):
+		cls.app = wx.App.Get() or wx.App()
+		cls.frame = wx.Frame(None)
+
+	@classmethod
+	def tearDownClass(cls):
+		cls.frame.Destroy()
+
+	def silence(self, answer):
+		from gui.message import MessageDialog
+		from notificationsController.historyDialog import HistoryDialog
+
+		controller = Controller()
+		controller.load()
+		controller.history.clear()
+		self.assertTrue(controller.commitRules([]))
+		live = rec("Ticker", source=SOURCE_LIVE_REGION, appName="chrome")
+		live.url = "https://www.example.com/"
+		live.domain = "www.example.com"
+		controller.history.add(live)
+		asked = []
+
+		def ask(cls, message, caption=None, parent=None, yesLabel=None, noLabel=None, cancelLabel=None):
+			asked.append((message, yesLabel, noLabel))
+			return answer
+
+		saved = MessageDialog.__dict__["ask"]
+		MessageDialog.ask = classmethod(ask)
+		dialog = HistoryDialog(self.frame, controller, plugin=None)
+		try:
+			dialog.selectRecord(live.id)
+			dialog.onSilenceSite(None)
+		finally:
+			MessageDialog.ask = saved
+			dialog.Close()
+		self.assertEqual(len(asked), 1)
+		self.assertIn("example.com", asked[0][0])
+		self.assertIn("logged", asked[0][0])
+		return controller.rules.rules
+
+	def test_keepLogging(self):
+		from gui.message import ReturnCode
+
+		rules = self.silence(ReturnCode.YES)
+		self.assertEqual(len(rules), 1)
+		self.assertEqual(rules[0].domain, "example.com")
+		self.assertEqual(rules[0].action.output, OUTPUT_NONE)
+		self.assertTrue(rules[0].log)
+
+	def test_doNotLog(self):
+		from gui.message import ReturnCode
+
+		rules = self.silence(ReturnCode.NO)
+		self.assertEqual(len(rules), 1)
+		self.assertFalse(rules[0].log)
+
+	def test_cancelAddsNothing(self):
+		from gui.message import ReturnCode
+
+		self.assertEqual(self.silence(ReturnCode.CANCEL), [])
+
+
 if __name__ == "__main__":
 	unittest.main(verbosity=2)

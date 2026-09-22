@@ -50,7 +50,7 @@ Keys in the list:
 Buttons:
 
 1. Create rule: opens the rule editor, filled in to match notifications like the selected one.
-2. Silence this site's live regions: adds a rule that silences every live region on the selected notification's website. Available for live region notifications from a website.
+2. Silence this site's live regions: adds a rule that silences every live region on the selected notification's website. It asks in the same step whether they should still be logged to history: "Silence and keep logging" lets you review them later, "Silence and don't log" keeps them out of history too, and Cancel adds no rule. Available for live region notifications from a website.
 3. Pin or Unpin: pinned notifications are never deleted automatically.
 4. Copy: copies the details.
 5. Delete, and Delete all shown.
