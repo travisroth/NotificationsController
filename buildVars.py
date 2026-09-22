@@ -26,7 +26,7 @@ Every notification is logged to a history you can review later. Rules, by app, w
 decide whether a notification is spoken, brailled, played as a sound, or silenced.
 Out of the box nothing changes: notifications are only logged, so you can see what arrives before writing rules."""),
 	# version
-	addon_version="0.1.0",
+	addon_version="2026.2.0",
 	# Brief changelog for this version
 	# Translators: what's new content for the add-on version to be shown in the add-on store
 	addon_changelog=_("""Initial development version."""),
@@ -46,7 +46,7 @@ Out of the box nothing changes: notifications are only logged, so you can see wh
 	# Add-on update channel (default is None, denoting stable releases,
 	# and for development releases, use "dev".)
 	# Do not change unless you know what you are doing!
-	addon_updateChannel="dev",
+	addon_updateChannel=None,
 	# Add-on license such as GPL 2
 	addon_license="GPL 2",
 	# URL for the license document the ad-on is licensed under
