@@ -1,5 +1,10 @@
 # Notifications Controller
 
+* Author: Travis Roth
+* NVDA compatibility: 2026.2 and later. 
+*  Download: [Notifications Controller 2026.2.0](https://github.com/travisroth/NotificationsController/releases/download/v2026.2.0/notificationsController-2026.2.0.nvda-addon)
+
+
 Notifications Controller is an NVDA add-on that lets you control and review the notifications that Windows, apps and web pages send to NVDA.
 
 Apps and web pages send NVDA a lot of announcements. Some are useful, some are noise, and some are useful but easy to miss. With this add-on you can:
