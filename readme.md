@@ -156,11 +156,11 @@ In your NVDA settings folder, in a folder named notificationsController:
 
 ### The built-in sounds
 
-The built-in sounds are part of the add-on itself, not your settings, so they are in the add-on's own folder: the sounds folder inside addons\notificationsController in your NVDA settings folder. For an installed copy of NVDA this is usually %APPDATA%\nvda\addons\notificationsController\sounds. Do not add or change files there: that folder is replaced whenever the add-on is updated, and the Sound list only offers chime, blip and alert.
+The built-in sounds are part of the add-on itself, not your settings, so they are in the add-on's own folder: the sounds folder inside addons\notificationsController in your NVDA settings folder. For an installed copy of NVDA this is usually %APPDATA%\nvda\addons\notificationsController\sounds. Do not add or change files there: when you install a new version of this add-on, NVDA deletes the old add-on folder and puts the new version in its place, so anything you added is lost. Updating NVDA itself does not touch it. The Sound list also only offers chime, blip and alert.
 
 ### Your own sounds
 
-A rule can play any .wav file on your computer. The rule saves the file's full path, not a copy of the sound, so keep your sounds in a folder that will not move or be deleted. A good choice is a folder named sounds in the notificationsController settings folder above, such as %APPDATA%\nvda\notificationsController\sounds. You create that folder yourself. Updating or reinstalling the add-on leaves it alone.
+A rule can play any .wav file on your computer. The rule saves the file's full path, not a copy of the sound, so keep your sounds in a folder that will not move or be deleted. A good choice is a folder named sounds in the notificationsController settings folder above, such as %APPDATA%\nvda\notificationsController\sounds. You create that folder yourself. Installing a new version of the add-on leaves it alone.
 
 If you move your rules to another computer by exporting them, copy your sounds too, and put them at the same path, or edit the rules to point to the new place.
 
