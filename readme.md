@@ -96,7 +96,7 @@ Every field you fill in must match. Empty fields match anything.
 	4. Braille only.
 	5. No speech or braille.
 2. Remove the matched text and report the rest: instead of the whole notification, report what is left once the text the rule matched is removed. Use it for notifications that carry useful text plus something you do not want to hear, such as instructions a chat app adds to every message. Starts with removes the start of the text; contains and regular expressions remove every match; is exactly leaves nothing. Leftover commas and spaces are tidied, and if nothing meaningful is left, nothing is reported (a sound still plays, if the rule has one). The rest is reported with the speech and braille choice above; with NVDA default it is spoken and brailled, since NVDA cannot report changed text itself. The history keeps the original text and shows what was reported, and the Test against history button shows what each matching notification would become.
-3. Sound: no sound, one of the built-in sounds (chime, blip, alert), or your own wave file. The sound plays before any speech. With "No speech or braille", the sound plays instead of the notification.
+3. Sound: no sound, one of the built-in sounds (chime, blip, alert), or your own wave file. The sound plays before any speech. With "No speech or braille", the sound plays instead of the notification. To use your own sound, choose "Custom sound file", then press Browse and pick any .wav file, or type its full path. See "Your own sounds" below for where to keep them.
 4. Category: important, informational, spam, or type your own.
 5. Log to history: uncheck it for notifications you never want to see, such as a very noisy site.
 
@@ -153,6 +153,16 @@ In your NVDA settings folder, in a folder named notificationsController:
 1. rules.json: your rules. If it cannot be read, it is renamed rules.json.damaged and the add-on starts with no rules.
 2. history.jsonl: the history, one notification per line, when history is kept after restarts.
 3. settings.json: the history storage settings, shared by all configuration profiles. If it cannot be read, the add-on does not save history to disk until you save its settings again: the file might have said not to. A damaged file is copied to settings.json.damaged. The settings show a warning for anything that went wrong, saying what is happening now and what may change: settings that could not be read or saved, a history file that could not be read (history is then kept in memory only and the file is left untouched), or a history file that could not be deleted when you turned saving off (its location is given, so you can delete it yourself). Saving the settings again tries once more.
+
+### The built-in sounds
+
+The built-in sounds are part of the add-on itself, not your settings, so they are in the add-on's own folder: the sounds folder inside addons\notificationsController in your NVDA settings folder. For an installed copy of NVDA this is usually %APPDATA%\nvda\addons\notificationsController\sounds. Do not add or change files there: that folder is replaced whenever the add-on is updated, and the Sound list only offers chime, blip and alert.
+
+### Your own sounds
+
+A rule can play any .wav file on your computer. The rule saves the file's full path, not a copy of the sound, so keep your sounds in a folder that will not move or be deleted. A good choice is a folder named sounds in the notificationsController settings folder above, such as %APPDATA%\nvda\notificationsController\sounds. You create that folder yourself. Updating or reinstalling the add-on leaves it alone.
+
+If you move your rules to another computer by exporting them, copy your sounds too, and put them at the same path, or edit the rules to point to the new place.
 
 ## Known limits
 
