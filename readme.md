@@ -192,6 +192,10 @@ Test tools:
 
 See PLAN.md for the design.
 
+## Development & Acknowledgments
+
+This project was independently designed, architected, and maintained by Travis Roth, with AI assistants (such as Claude and ChatGPT) utilized for code drafting, refactoring, and documentation support.
+
 ## License
 
 Copyright (C) 2026 Travis Roth. Distributed under the GNU General Public License, version 2. See COPYING.txt.
